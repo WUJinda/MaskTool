@@ -1,33 +1,28 @@
 @echo off
-chcp 65001 >nul 2>&1
-title mask-tool æ–‡ä»¶è„±æ•å·¥å…·
-
-rem ============================================
-rem  mask-tool æ¡Œé¢åº”ç”¨å¯åŠ¨å™¨ï¼ˆä¸»å…¥å£ï¼‰
-rem  æ‰“å¼€ pywebview åŸç”Ÿçª—å£ï¼Œæ— éœ€æµè§ˆå™¨ã€‚
-rem  å…³é—­çª—å£å³é€€å‡ºï¼Œæ— æ®‹ç•™åå°æœåŠ¡ã€‚
-rem ============================================
+title mask-tool ÎÄ¼şÍÑÃô¹¤¾ß
+rem mask-tool ×ÀÃæÓ¦ÓÃÆô¶¯Æ÷£¨Ö÷Èë¿Ú£©£º´ò¿ª pywebview Ô­Éú´°¿Ú
+rem ¹Ø±Õ´°¿Ú¼´ÍêÈ«ÍË³ö£¬ÎŞ²ĞÁôºóÌ¨·şÎñ
 
 cd /d "%~dp0"
 
 if not exist "pyproject.toml" (
-    echo é”™è¯¯ï¼šè¯·åœ¨ mask-tool é¡¹ç›®ç›®å½•ä¸­è¿è¡Œæ­¤è„šæœ¬
+    echo ´íÎó£ºÇëÔÚ mask-tool ÏîÄ¿Ä¿Â¼ÖĞÔËĞĞ´Ë½Å±¾
     pause
     exit /b 1
 )
 
-if exist ".venv\Scripts\activate.bat" (
-    call .venv\Scripts\activate.bat
+if exist ".venv\Scriptsctivate.bat" (
+    call .venv\Scriptsctivate.bat
 )
 
-echo æ­£åœ¨å¯åŠ¨ mask-tool æ¡Œé¢çª—å£...
+echo ÕıÔÚÆô¶¯ mask-tool ×ÀÃæ´°¿Ú...
 python -m mask_tool.desktop
 
 if errorlevel 1 (
     echo.
-    echo [å¯åŠ¨å¤±è´¥] å¸¸è§åŸå› ï¼š
-    echo   1. ä¾èµ–æœªå®‰è£…ï¼špip install -e ".[app]"
-    echo   2. WebView2 è¿è¡Œæ—¶ç¼ºå¤±ï¼šhttps://developer.microsoft.com/microsoft-edge/webview2/
-    echo   3. é¦–æ¬¡ä½¿ç”¨è¯·å…ˆè¿è¡Œ install-windows.bat
+    echo [Æô¶¯Ê§°Ü] ³£¼ûÔ­Òò£º
+    echo   1. ÒÀÀµÎ´°²×°£ºpip install -e ".[app]"
+    echo   2. WebView2 ÔËĞĞÊ±È±Ê§£ºhttps://developer.microsoft.com/microsoft-edge/webview2/
+    echo   3. Ê×´ÎÊ¹ÓÃÇëÏÈÔËĞĞ install-windows.bat
     pause
 )

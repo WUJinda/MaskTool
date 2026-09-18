@@ -1,29 +1,28 @@
 @echo off
-chcp 65001 >nul 2>&1
-title mask-tool 文件脱敏工具 - 安装程序
+title mask-tool �ļ��������� - ��װ����
 
 echo.
 echo ============================================
-echo    mask-tool 文件脱敏工具 - 安装程序（桌面应用）
+echo    mask-tool �ļ��������� - ��װ��������Ӧ�ã�
 echo ============================================
 echo.
 
-:: 获取脚本所在目录
+:: ��ȡ�ű�����Ŀ¼
 cd /d "%~dp0"
 
-:: 1. 检查 Python
-echo [1/4] 检查 Python...
+:: 1. ��� Python
+echo [1/4] ��� Python...
 where python >nul 2>&1
 if %errorlevel% neq 0 (
     where python3 >nul 2>&1
     if %errorlevel% neq 0 (
-        echo   [X] 未找到 Python
+        echo   [X] δ�ҵ� Python
         echo.
-        echo   请先安装 Python 3.9+：
-        echo   1. 访问 https://www.python.org/downloads/
-        echo   2. 下载 Windows 安装包
-        echo   3. 安装时勾选 "Add Python to PATH"
-        echo   4. 重新运行此脚本
+        echo   ���Ȱ�װ Python 3.9+��
+        echo   1. ���� https://www.python.org/downloads/
+        echo   2. ���� Windows ��װ��
+        echo   3. ��װʱ��ѡ "Add Python to PATH"
+        echo   4. �������д˽ű�
         echo.
         pause
         exit /b 1
@@ -35,85 +34,82 @@ if %errorlevel% neq 0 (
 )
 
 for /f "tokens=2 delims= " %%v in ('%PYTHON% --version 2^>^&1') do set PY_VER=%%v
-echo   [OK] 找到 Python %PY_VER%
+echo   [OK] �ҵ� Python %PY_VER%
 
-:: 2. 创建虚拟环境
+:: 2. �������⻷��
 echo.
-echo [2/4] 创建虚拟环境...
+echo [2/4] �������⻷��...
 if exist ".venv" (
-    echo   [!] 虚拟环境已存在，跳过创建
+    echo   [!] ���⻷���Ѵ��ڣ���������
 ) else (
     %PYTHON% -m venv .venv
     if %errorlevel% neq 0 (
-        echo   [X] 虚拟环境创建失败
+        echo   [X] ���⻷������ʧ��
         pause
         exit /b 1
     )
-    echo   [OK] 虚拟环境创建成功
+    echo   [OK] ���⻷�������ɹ�
 )
 
-:: 激活虚拟环境
-call .venv\Scripts\activate.bat
+:: �������⻷��
+call .venv\Scriptsctivate.bat
 
-:: 3. 安装依赖（app = 桌面窗口 + UI 内核完整依赖）
+:: 3. ��װ������app = ���洰�� + UI �ں�����������
 echo.
-echo [3/4] 安装依赖（可能需要几分钟）...
+echo [3/4] ��װ������������Ҫ�����ӣ�...
 pip install --upgrade pip --quiet 2>nul
 pip install -e ".[app]"
 if %errorlevel% neq 0 (
-    echo   [!] 部分依赖安装失败，尝试重新安装...
+    echo   [!] ����������װʧ�ܣ��������°�װ...
     pip install -e ".[app]"
 )
 
-echo   [OK] 依赖安装完成
+echo   [OK] ������װ���
 
-:: 4. 初始化配置
+:: 4. ��ʼ������
 echo.
-echo [4/4] 初始化配置...
+echo [4/4] ��ʼ������...
 if not exist "config\lexicon.yaml" (
     if exist "config\sample_lexicon.yaml" (
         copy "config\sample_lexicon.yaml" "config\lexicon.yaml" >nul
-        echo   [OK] 已创建用户词库 config\lexicon.yaml
+        echo   [OK] �Ѵ����û��ʿ� config\lexicon.yaml
     )
 ) else (
-    echo   [OK] 配置已就绪
+    echo   [OK] �����Ѿ���
 )
 
-:: 创建历史目录
+:: ������ʷĿ¼
 if not exist "%USERPROFILE%\.mask-tool" mkdir "%USERPROFILE%\.mask-tool"
 
-:: 创建桌面启动脚本（打开桌面窗口，不再使用浏览器）
+:: �������������ű����� ASCII ת������Ŀ start-windows.bat���ޱ������⣩
 echo.
-echo 创建桌面快捷方式...
+echo ���������ݷ�ʽ...
 set DESKTOP=%USERPROFILE%\Desktop
-set START_SCRIPT=%DESKTOP%\mask-tool启动.bat
+set START_SCRIPT=%DESKTOP%\mask-tool����.bat
 
 echo @echo off > "%START_SCRIPT%"
-echo chcp 65001 ^>nul 2^>^&1 >> "%START_SCRIPT%"
-echo title mask-tool 文件脱敏工具 >> "%START_SCRIPT%"
+echo title mask-tool >> "%START_SCRIPT%"
 echo cd /d "%~dp0" >> "%START_SCRIPT%"
-echo if not exist pyproject.toml ^( >> "%START_SCRIPT%"
-echo     echo 错误：mask-tool 项目目录已被移动或删除 >> "%START_SCRIPT%"
+echo if not exist "start-windows.bat" ^( >> "%START_SCRIPT%"
+echo     echo mask-tool project not found. >> "%START_SCRIPT%"
 echo     pause >> "%START_SCRIPT%"
 echo     exit /b 1 >> "%START_SCRIPT%"
 echo ^) >> "%START_SCRIPT%"
-echo call .venv\Scripts\activate.bat >> "%START_SCRIPT%"
-echo python -m mask_tool.desktop >> "%START_SCRIPT%"
-echo if errorlevel 1 pause >> "%START_SCRIPT%"
+echo call start-windows.bat >> "%START_SCRIPT%"
 
-echo   [OK] 桌面快捷方式已创建：%START_SCRIPT%
+echo   [OK] �����ݷ�ʽ�Ѵ�����%START_SCRIPT%
 
-:: 完成
+:: ���
 echo.
 echo ============================================
-echo   [OK] 安装完成！
+echo   [OK] ��װ��ɣ�
 echo ============================================
 echo.
-echo   使用方式：
-echo   1. 双击桌面上的「mask-tool启动.bat」
-echo   2. 弹出 mask-tool 桌面窗口，即可上传文件脱敏
-echo   3. 关闭窗口即退出，无残留后台服务
+echo   ʹ�÷�ʽ��
+echo   1. ˫�������ϵġ�mask-tool����.bat��
+echo   2. ���� mask-tool ���洰�ڣ������ϴ��ļ�����
+echo   3. �رմ��ڼ��˳����޲�����̨����
 echo.
-echo   如需卸载，删除项目文件夹与桌面快捷方式即可。
+echo   ����ж�أ�ɾ����Ŀ�ļ����������ݷ�ʽ���ɡ�
 echo.
 pause
