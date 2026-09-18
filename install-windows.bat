@@ -4,7 +4,7 @@ title mask-tool 文件脱敏工具 - 安装程序
 
 echo.
 echo ============================================
-echo    lock mask-tool 文件脱敏工具 - 安装程序
+echo    mask-tool 文件脱敏工具 - 安装程序（桌面应用）
 echo ============================================
 echo.
 
@@ -19,7 +19,7 @@ if %errorlevel% neq 0 (
     if %errorlevel% neq 0 (
         echo   [X] 未找到 Python
         echo.
-        echo   请先安装 Python 3.8+：
+        echo   请先安装 Python 3.9+：
         echo   1. 访问 https://www.python.org/downloads/
         echo   2. 下载 Windows 安装包
         echo   3. 安装时勾选 "Add Python to PATH"
@@ -55,14 +55,14 @@ if exist ".venv" (
 :: 激活虚拟环境
 call .venv\Scripts\activate.bat
 
-:: 3. 安装依赖
+:: 3. 安装依赖（app = 桌面窗口 + UI 内核完整依赖）
 echo.
 echo [3/4] 安装依赖（可能需要几分钟）...
 pip install --upgrade pip --quiet 2>nul
-pip install -e ".[web]"
+pip install -e ".[app]"
 if %errorlevel% neq 0 (
     echo   [!] 部分依赖安装失败，尝试重新安装...
-    pip install -e ".[web]"
+    pip install -e ".[app]"
 )
 
 echo   [OK] 依赖安装完成
@@ -82,7 +82,7 @@ if not exist "config\lexicon.yaml" (
 :: 创建历史目录
 if not exist "%USERPROFILE%\.mask-tool" mkdir "%USERPROFILE%\.mask-tool"
 
-:: 创建桌面启动脚本
+:: 创建桌面启动脚本（打开桌面窗口，不再使用浏览器）
 echo.
 echo 创建桌面快捷方式...
 set DESKTOP=%USERPROFILE%\Desktop
@@ -91,25 +91,17 @@ set START_SCRIPT=%DESKTOP%\mask-tool启动.bat
 echo @echo off > "%START_SCRIPT%"
 echo chcp 65001 ^>nul 2^>^&1 >> "%START_SCRIPT%"
 echo title mask-tool 文件脱敏工具 >> "%START_SCRIPT%"
-echo cd /d "%%~dp0" >> "%START_SCRIPT%"
-echo :: 定位到项目目录 >> "%START_SCRIPT%"
-echo for %%%%d in ("%cd%") do set "PARENT=%%%%~nxd" >> "%START_SCRIPT%"
-echo if "%%PARENT%%"=="Desktop" ( >> "%START_SCRIPT%"
-echo     cd /d "%~dp0" >> "%START_SCRIPT%"
-echo ) >> "%START_SCRIPT%"
-echo if not exist pyproject.toml ( >> "%START_SCRIPT%"
-echo     echo 错误：找不到 mask-tool 项目目录 >> "%START_SCRIPT%"
+echo cd /d "%~dp0" >> "%START_SCRIPT%"
+echo if not exist pyproject.toml ^( >> "%START_SCRIPT%"
+echo     echo 错误：mask-tool 项目目录已被移动或删除 >> "%START_SCRIPT%"
 echo     pause >> "%START_SCRIPT%"
 echo     exit /b 1 >> "%START_SCRIPT%"
-echo ) >> "%START_SCRIPT%"
+echo ^) >> "%START_SCRIPT%"
 echo call .venv\Scripts\activate.bat >> "%START_SCRIPT%"
-echo echo 正在启动 mask-tool... >> "%START_SCRIPT%"
-echo echo 启动后浏览器会自动打开 http://localhost:8501 >> "%START_SCRIPT%"
-echo echo 关闭此窗口即可停止服务 >> "%START_SCRIPT%"
-echo streamlit run src\mask_tool\web\app.py --server.port 8501 >> "%START_SCRIPT%"
-echo pause >> "%START_SCRIPT%"
+echo python -m mask_tool.desktop >> "%START_SCRIPT%"
+echo if errorlevel 1 pause >> "%START_SCRIPT%"
 
-echo   [OK] 桌面快捷方式已创建
+echo   [OK] 桌面快捷方式已创建：%START_SCRIPT%
 
 :: 完成
 echo.
@@ -119,9 +111,9 @@ echo ============================================
 echo.
 echo   使用方式：
 echo   1. 双击桌面上的「mask-tool启动.bat」
-echo   2. 浏览器会自动打开 http://localhost:8501
-echo   3. 关闭命令行窗口即可停止服务
+echo   2. 弹出 mask-tool 桌面窗口，即可上传文件脱敏
+echo   3. 关闭窗口即退出，无残留后台服务
 echo.
-echo   如需卸载，删除项目文件夹即可。
+echo   如需卸载，删除项目文件夹与桌面快捷方式即可。
 echo.
 pause

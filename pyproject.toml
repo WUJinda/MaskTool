@@ -35,12 +35,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = [
-    "streamlit>=1.28.0",
-    "pandas>=1.4.0",
+# 桌面应用完整依赖（UI 内核 streamlit/pandas 已在基础依赖中）
+app = [
     "streamlit-aggrid>=0.3.0",
-]
-desktop = [
     "pywebview>=5.0",
 ]
 ner-hanlp = [
@@ -57,7 +54,6 @@ repository = "https://github.com/WUJinda/MaskTool"
 
 [project.scripts]
 mask-tool = "mask_tool.cli.app:app"
-mask-tool-web = "mask_tool.web.app:run_web"
 mask-tool-desktop = "mask_tool.desktop:main"
 
 [tool.setuptools.packages.find]

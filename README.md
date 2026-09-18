@@ -15,7 +15,7 @@
 [![tests](https://img.shields.io/badge/tests-260%20passed-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](https://github.com/WUJinda/MaskTool/tree/main/tests)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-![Web 界面](docs/screenshot-web.png)
+![桌面应用界面](docs/screenshot-app.png)
 
 </div>
 
@@ -27,7 +27,7 @@
 - **🧠 智能识别** —— 词库精确匹配 + 正则（手机号 / 身份证 / 银行卡 / 邮箱 / 日期）+ jieba NER，按置信度分级处置
 - **📄 深度格式覆盖** —— docx 正文 / 表格 / 嵌套表格 / 页眉页脚 / 脚注尾注 / 批注 / 文本框；xlsx 单元格 / 富文本 / 公式字面量 / 批注 / 数据验证列表
 - **🗂 文件名也脱敏** —— 目录模式下输出镜像树的文件名 / 目录名同步脱敏，映射表 `paths` 段记录，可一并还原
-- **🖥️ 双形态入口** —— 浏览器 Web UI（可视化勾选确认）+ 原生桌面窗口（pywebview，双击即用）
+- **🖥️ 桌面应用** —— 原生窗口（pywebview + WebView2），双击即用、关窗即退；UI 由内置 Streamlit 内核驱动，仅本机回环通信，无需浏览器与命令行
 - **🔒 本地优先** —— 仅监听 `127.0.0.1`，关闭遥测，全程无外部 API 调用，数据不出本机
 - **📦 批次化管理** —— 每次运行产物写入独立批次目录，映射表带批次标识与指纹，防跨批次混用
 
@@ -37,19 +37,23 @@
 # 安装（Python ≥ 3.9）
 pip install -e .
 
+# 桌面应用完整依赖（UI 内核 + 原生窗口）
+pip install -e ".[app]"
+
 # 生成默认配置与示例词库
 mask-tool config
 ```
 
 | 入口 | 命令 | 适合场景 |
 | --- | --- | --- |
-| 🖥️ 桌面窗口 | 双击 `start-desktop-windows.bat` 或 `mask-tool-desktop` | 日常使用，原生窗口 + 原生保存对话框 |
-| 🌐 浏览器 | `mask-tool-web` → <http://127.0.0.1:8501> | 需要浏览器扩展生态时 |
+| 🖥️ 桌面窗口 | 双击 `start-windows.bat` / `start-mac.command`，或 `mask-tool app` | 日常使用，原生窗口 + 原生保存对话框 |
 | ⌨️ 命令行 | `mask-tool mask / inspect / unmask / config` | 脚本化、批量任务 |
 
-**Web / 桌面四步流程**：`📤 上传` → `🔍 检测` → `✅ 确认选择` → `💾 执行脱敏`，随后在「恢复还原」页上传脱敏文件 + `mapping.json` 即可还原。
+> 独立浏览器/Web 入口（`mask-tool-web`）已下线：UI 仅在桌面窗口内渲染。
 
-## 📖 Web 界面高级用法
+**桌面四步流程**：`📤 上传` → `🔍 检测` → `✅ 确认选择` → `💾 执行脱敏`，随后在「恢复还原」页上传脱敏文件 + `mapping.json` 即可还原。
+
+## 🖥️ 桌面应用高级用法
 
 - **临时自定义敏感词**：检测页文本框手动指定本次关注的词（每行一个或逗号分隔），按词库语义精确匹配、置信度 0.95 自动脱敏，生成 `[CUSTOM_xxx]` Token 并标「✍️ 手动」来源；仅本次任务生效，不写入词库文件
 - **仅脱敏我指定的词**：开关开启后完全跳过自动检测（NER / 正则 / 词库均不运行），只处理手动指定的词
@@ -69,6 +73,7 @@ mask-tool mask input.docx --mode smart --output ./output/
 # 建议脱敏项也替换 / 交互式逐项勾选
 mask-tool mask input.docx --all
 mask-tool mask input.docx --confirm
+# --confirm 下未勾选（内容未脱敏）的文件会隔离到镜像树内 skipped_unmasked/ 子目录，勿作为脱敏产物分发
 
 # 目录递归（文件名同步脱敏，--no-mask-names 关闭）
 mask-tool mask ./项目资料/ --output ./output/
@@ -132,10 +137,10 @@ mask-tool unmask "<批次目录>/<脱敏后目录>" --mapping "<批次目录>/ma
 
 - **docx 修订记录**：未接受的修订（`w:ins` / `w:del`）不处理，修订删除的文本不参与检测替换，修订人姓名等元数据不清除。交付前请先接受所有修订
 - **段内混合格式退化**：docx 中替换发生过的段落，整段文本并入首个 run（保留其格式），该段其余 run 的局部格式（加粗 / 颜色等）不再生效
-- **跨 tab / 换行实体**：跨制表符 / 软换行的实体可被检测替换与还原，但重建后 tab / 换行可能偏离原位置，重要文档请人工复核
+- **跨 tab/换行实体**：跨制表符 / 软换行的实体可被检测替换与还原，但重建后 tab / 换行可能位置漂移（偏离原位置），重要文档请人工复核
 - **roundtrip 前提**：unmask 仅保证对未再编辑的脱敏文档完整还原；xlsx 批注作者单向清除，不在还原范围
-- **xlsx 大整数精度**：≥ 16 位的整值数字在未脱敏保留时统一预转为文本存储（逐位保真）；16–19 位 Luhn 校验通过的卡号还原为数值，超过 19 位还原为文本
-- **Web 检测临时副本**：Web 端检测后直接关闭页面时，上传副本可能残留在系统 temp 目录；建议完成脱敏流程或再次点击「重新检测」触发清理
+- **xlsx 大整数精度**：≥16 位的整值数字在未脱敏保留时统一预转为文本存储（逐位保真）；16–19 位 Luhn 校验通过的卡号还原为数值，超过 19 位还原为文本
+- **检测临时副本**：检测后直接关闭窗口时，上传副本可能残留在系统 temp 目录；建议完成脱敏流程或再次点击「重新检测」触发清理
 - **xlsx 线程批注**：openpyxl 不支持 threadedComments，保存时该部件会被丢弃，运行时有告警
 - **路径超长**：改名后绝对路径超过 Windows MAX_PATH 限制时保留原名（不截断 Token）并警告
 
@@ -143,22 +148,22 @@ mask-tool unmask "<批次目录>/<脱敏后目录>" --mapping "<批次目录>/ma
 
 ## ⚙️ 配置
 
-编辑 `config/default.yaml`，或命令行参数覆盖。配置加载回退链：显式 `--config`（缺失即报错）→ 当前目录 `config/default.yaml` → 内嵌模板 → 纯代码默认；每次回退均警告并打印生效的词库路径。`lexicon.yaml` 缺失时自动从同目录 `sample_lexicon.yaml` 复制创建，Web 侧边栏「词库管理」支持增删与批量导入（YAML / TXT）。
+编辑 `config/default.yaml`，或命令行参数覆盖。配置加载回退链：显式 `--config`（缺失即报错）→ 当前目录 `config/default.yaml` → 内嵌模板 → 纯代码默认；每次回退均警告并打印生效的词库路径。`lexicon.yaml` 缺失时自动从同目录 `sample_lexicon.yaml` 复制创建，桌面窗口侧边栏「词库管理」支持增删与批量导入（YAML / TXT）。
 
 ## 📁 项目结构
 
 ```sh
 ├── src/mask_tool/
-│   ├── cli/          # CLI 入口（mask / unmask / inspect / config）
+│   ├── cli/          # CLI 入口（app 启动桌面窗口 / mask / unmask / inspect / config）
 │   ├── core/         # 核心业务（替换引擎 / 检测 / 策略 / 流水线 / 路径脱敏）
 │   ├── adapters/     # 格式适配器（docx / xlsx；pptx / pdf 已屏蔽）
-│   ├── web/          # Streamlit Web UI
-│   ├── desktop.py    # pywebview 桌面窗口入口
+│   ├── web/          # Streamlit UI 内核（仅供桌面窗口内部渲染，无独立浏览器入口）
+│   ├── desktop.py    # pywebview 桌面窗口主入口
 │   ├── store/        # 持久化（映射表 / 词库）
 │   ├── models/       # 数据模型
 │   └── utils/
 ├── config/           # 配置与词库（config 命令可再生成）
-├── tests/            # pytest 测试（260 passed / 5 skipped）
+├── tests/            # pytest 测试
 ├── assets/           # 应用图标
 └── docs/             # README 图片资产
 ```

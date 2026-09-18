@@ -565,7 +565,7 @@ class TestReadmeLimits:
         assert "跨 tab/换行实体" in text
         assert "位置漂移" in text
         assert "检测不到" not in text
-        # Web 检测临时副本残留提示
-        assert "Web 检测临时副本" in text
+        # 检测临时副本残留提示（2026-09-18 桌面化：原"Web 检测临时副本"）
+        assert "检测临时副本" in text
         # ≥16 位整值统一转文本保真声明
         assert "≥16 位" in text

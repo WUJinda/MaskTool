@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  mask-tool 一键安装脚本 (macOS)
+#  mask-tool 一键安装脚本 (macOS · 桌面应用)
 #  用法：双击 install-mac.command 或在终端中运行
 # ============================================================
 
@@ -14,7 +14,7 @@ NC='\033[0m'
 
 echo ""
 echo "============================================"
-echo "   🔒 mask-tool 文件脱敏工具 - 安装程序"
+echo "   mask-tool 文件脱敏工具 - 安装程序（桌面应用）"
 echo "============================================"
 echo ""
 
@@ -44,11 +44,11 @@ else
     exit 1
 fi
 
-# 检查 Python 版本 >= 3.8
+# 检查 Python 版本 >= 3.9
 PY_MAJOR=$($PYTHON -c "import sys; print(sys.version_info.major)")
 PY_MINOR=$($PYTHON -c "import sys; print(sys.version_info.minor)")
-if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 8 ]); then
-    echo -e "  ${RED}✗${NC} Python 版本过低（需要 3.8+，当前 $PY_MAJOR.$PY_MINOR）"
+if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]); then
+    echo -e "  ${RED}✗${NC} Python 版本过低（需要 3.9+，当前 $PY_MAJOR.$PY_MINOR）"
     read -p "按回车键退出..."
     exit 1
 fi
@@ -66,16 +66,16 @@ fi
 # 激活虚拟环境
 source .venv/bin/activate
 
-# 3. 安装依赖
+# 3. 安装依赖（app = 桌面窗口 + UI 内核完整依赖）
 echo ""
 echo "📦 [3/4] 安装依赖（可能需要几分钟）..."
 pip install --upgrade pip --quiet 2>/dev/null
-pip install -e ".[web]" --quiet 2>/dev/null
+pip install -e ".[app]" --quiet 2>/dev/null
 if [ $? -eq 0 ]; then
     echo -e "  ${GREEN}✓${NC} 依赖安装成功"
 else
     echo -e "  ${YELLOW}!${NC} 部分依赖安装失败，尝试重新安装..."
-    pip install -e ".[web]"
+    pip install -e ".[app]"
 fi
 
 # 4. 初始化用户词库
@@ -91,40 +91,26 @@ fi
 # 创建历史目录
 mkdir -p ~/.mask-tool
 
-# 创建桌面启动脚本
+# 创建桌面启动脚本（打开桌面窗口，不再使用浏览器）
 echo ""
 echo "🚀 创建桌面快捷方式..."
 DESKTOP_DIR="$HOME/Desktop"
 START_SCRIPT="$DESKTOP_DIR/mask-tool启动.command"
 
-cat > "$START_SCRIPT" << 'STARTSCRIPT'
+cat > "$START_SCRIPT" << STARTSCRIPT
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# 如果从桌面运行，尝试定位到项目目录
-if [ -f "$SCRIPT_DIR/mask-tool启动.command" ]; then
-    # 查找 mask-tool 项目目录
-    for search_dir in "$HOME/Documents" "$HOME/Desktop" "$HOME/projects" "$HOME"; do
-        if [ -d "$search_dir/TRAE SOLO PROJECTS/mask-tool" ]; then
-            cd "$search_dir/TRAE SOLO PROJECTS/mask-tool"
-            break
-        fi
-        if [ -d "$search_dir/mask-tool" ]; then
-            cd "$search_dir/mask-tool"
-            break
-        fi
-    done
-fi
+cd "$SCRIPT_DIR"
 if [ ! -f "pyproject.toml" ]; then
-    echo "错误：找不到 mask-tool 项目目录"
-    echo "请将此脚本放在 mask-tool 项目目录中运行"
+    echo "错误：mask-tool 项目目录已被移动或删除"
     read -p "按回车键退出..."
     exit 1
 fi
 source .venv/bin/activate
-echo "正在启动 mask-tool..."
-echo "启动后浏览器会自动打开，关闭浏览器即停止服务"
-echo ""
-streamlit run src/mask_tool/web/app.py --server.port 8501
+echo "正在启动 mask-tool 桌面窗口..."
+python -m mask_tool.desktop
+if [ \$? -ne 0 ]; then
+    read -p "启动失败，按回车键退出..."
+fi
 STARTSCRIPT
 
 chmod +x "$START_SCRIPT"
@@ -138,9 +124,9 @@ echo "============================================"
 echo ""
 echo "  使用方式："
 echo "  1. 双击桌面上的「mask-tool启动.command」"
-echo "  2. 浏览器会自动打开 http://localhost:8501"
-echo "  3. 关闭终端窗口即可停止服务"
+echo "  2. 弹出 mask-tool 桌面窗口，即可上传文件脱敏"
+echo "  3. 关闭窗口即退出，无残留后台服务"
 echo ""
-echo "  如需卸载，删除项目文件夹即可。"
+echo "  如需卸载，删除项目文件夹与桌面快捷方式即可。"
 echo ""
 read -p "按回车键退出..."

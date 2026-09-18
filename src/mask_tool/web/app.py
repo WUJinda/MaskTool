@@ -2641,22 +2641,24 @@ def main():
 # 入口
 # ──────────────────────────────────────────────
 
+# 【已禁用】独立浏览器/Web 入口（2026-09-18）：本工具定位为桌面软件。
+# UI 仅由 mask_tool.desktop（pywebview 原生窗口）内部拉起本模块渲染，
+# 不再对外提供 streamlit 浏览器启动方式；mask-tool-web 控制台命令已从
+# pyproject [project.scripts] 移除。
+# 如需临时恢复（仅调试）：还原本函数原实现（subprocess 启 streamlit run），
+# 并在 pyproject 重新注册 mask-tool-web 入口。
+
 def run_web():
-    """CLI 入口：启动 Streamlit Web 界面
-
-    用法：
-        mask-tool-web              # 默认启动
-        mask-tool-web --port 8080  # 指定端口
-    """
+    """【已禁用】旧版浏览器 Web 入口存根，调用即退出并提示改用桌面入口"""
     import sys
-    import subprocess
 
-    app_file = Path(__file__).resolve()
-    args = [sys.executable, "-m", "streamlit", "run", str(app_file)]
-    # 透传额外参数（如 --port, --server.headless 等）
-    if len(sys.argv) > 1:
-        args.extend(sys.argv[1:])
-    subprocess.run(args)
+    print(
+        "mask-tool 已改为桌面应用，不再提供独立浏览器/Web 入口。\n"
+        "请改用：mask-tool app（或 mask-tool-desktop / "
+        "python -m mask_tool.desktop）打开桌面窗口。",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 
 if __name__ == "__main__":

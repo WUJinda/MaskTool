@@ -1123,3 +1123,22 @@ def config_init(
 def version() -> None:
     """显示版本信息"""
     console.print(f"mask-tool v{__version__}")
+
+
+@app.command("app")
+def launch_app() -> None:
+    """启动桌面应用窗口（pywebview 原生窗口，无需浏览器）
+
+    与 mask-tool-desktop 控制台命令、start-windows.bat 双击启动等价；
+    浏览器 Web 入口已下线，UI 仅在桌面窗口内渲染。
+    """
+    console.print(f"[bold green]mask-tool[/bold green] v{__version__} 正在打开桌面窗口…")
+    try:
+        from mask_tool.desktop import main as desktop_main
+    except ImportError as e:
+        console.print(
+            f"[red]桌面组件未安装（{e}）。请执行：[/red]"
+            '[red]pip install -e ".[app]"[/red]'
+        )
+        raise typer.Exit(1)
+    desktop_main()

@@ -9,8 +9,12 @@
       └─ 窗口关闭 → 结束 streamlit 进程树，退出
 
 用法：
-    mask-tool-desktop            # 控制台入口（pyproject 已注册）
+    mask-tool app            # CLI 子命令（推荐记忆点：一个可执行文件搞定全部）
+    mask-tool-desktop        # 控制台入口（pyproject 已注册）
     python -m mask_tool.desktop  # 等价
+    start-windows.bat / start-mac.command  # 双击启动（桌面软件主入口）
+
+注：独立浏览器/Web 入口（mask-tool-web）已下线，UI 仅在桌面窗口内渲染。
 """
 
 from __future__ import annotations
