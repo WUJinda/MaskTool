@@ -13,9 +13,6 @@ authors = [
     {name = "WUJinda", email = "Jindaw4@gmail.com"},
 ]
 keywords = ["desensitization", "masking", "docx", "xlsx", "pptx", "pdf", "privacy"]
-
-[project.urls]
-repository = "https://github.com/WUJinda/MaskTool"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -54,6 +51,9 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
+
+[project.urls]
+repository = "https://github.com/WUJinda/MaskTool"
 
 [project.scripts]
 mask-tool = "mask_tool.cli.app:app"
