@@ -1,0 +1,17 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="mask-tool 应用图标">
+  <!-- mask-tool 应用图标（任务栏/标题栏/资源管理器）
+       隐喻：文档 + 遮蔽条（脱敏/涂黑）；扁平纯色，透明背景，方形圆角
+       配色：底 #1E2440 / 纸 #FFFFFF / 遮蔽条 #5B6EE8 / 文本行 #C9CEDC -->
+  <!-- 圆角方底（满幅） -->
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="#1E2440"/>
+  <!-- 文档主体 -->
+  <rect x="66" y="50" width="124" height="156" rx="10" fill="#FFFFFF"/>
+  <!-- 右上折角：底色切角 + 浅色翻页 -->
+  <polygon points="158,50 190,50 190,82" fill="#1E2440"/>
+  <polygon points="158,50 190,82 158,82" fill="#D9DEEB"/>
+  <!-- 遮蔽条（已脱敏内容，品牌紫） -->
+  <rect x="84" y="92" width="88" height="20" rx="5" fill="#5B6EE8"/>
+  <rect x="84" y="124" width="64" height="20" rx="5" fill="#5B6EE8"/>
+  <!-- 普通文本行（浅灰蓝） -->
+  <rect x="84" y="162" width="88" height="8" rx="4" fill="#C9CEDC"/>
+</svg>

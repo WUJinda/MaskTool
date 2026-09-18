@@ -158,6 +158,37 @@ st.set_page_config(
 
 
 # ──────────────────────────────────────────────
+# 品牌 logo（内联 SVG，v2 扁平设计：深蓝紫底 + 白文档 + 品牌紫遮蔽条，
+# 与 assets/icon/masktool-icon.svg 同构；纯色无渐变）
+# ──────────────────────────────────────────────
+
+def _logo_svg(size: int = 34) -> str:
+    """生成内联 SVG logo。≤24px 切换简化构图（纸占比加大、遮蔽条加粗），
+    保证侧边栏小尺寸下依然清晰。"""
+    if size <= 24:
+        body = (
+            '<rect width="256" height="256" rx="56" fill="#1E2440"/>'
+            '<rect x="58" y="44" width="140" height="168" rx="9" fill="#FFFFFF"/>'
+            '<rect x="76" y="90" width="104" height="26" rx="6" fill="#5B6EE8"/>'
+            '<rect x="76" y="132" width="76" height="26" rx="6" fill="#5B6EE8"/>'
+        )
+    else:
+        body = (
+            '<rect width="256" height="256" rx="56" fill="#1E2440"/>'
+            '<rect x="66" y="50" width="124" height="156" rx="10" fill="#FFFFFF"/>'
+            '<polygon points="158,50 190,50 190,82" fill="#1E2440"/>'
+            '<polygon points="158,50 190,82 158,82" fill="#D9DEEB"/>'
+            '<rect x="84" y="92" width="88" height="20" rx="5" fill="#5B6EE8"/>'
+            '<rect x="84" y="124" width="64" height="20" rx="5" fill="#5B6EE8"/>'
+            '<rect x="84" y="162" width="88" height="8" rx="4" fill="#C9CEDC"/>'
+        )
+    return (
+        f'<svg class="mt-logo" width="{size}" height="{size}" viewBox="0 0 256 256"'
+        f' xmlns="http://www.w3.org/2000/svg" role="img" aria-label="mask-tool logo">{body}</svg>'
+    )
+
+
+# ──────────────────────────────────────────────
 # 自定义 CSS
 # ──────────────────────────────────────────────
 
@@ -179,8 +210,8 @@ def _inject_css():
         gap: 0.5rem !important;
     }
     /* 紧凑头部：logo + 名称 + 版本同一行 */
-    .side-head { display: flex; align-items: baseline; gap: 0.45rem; margin: 0.1rem 0 0.15rem; }
-    .side-head .logo { font-size: 1rem; }
+    .side-head { display: flex; align-items: center; gap: 0.45rem; margin: 0.1rem 0 0.15rem; }
+    .side-head .logo { display: flex; flex-shrink: 0; line-height: 0; }
     .side-head .name { font-size: 1rem; font-weight: 800; color: #fff !important; letter-spacing: 0.01em; }
     .side-head .ver { font-size: 0.68rem; color: rgba(226,229,240,.55) !important; }
     /* 小节标签：代替大号 st.subheader */
@@ -392,8 +423,9 @@ def _inject_css():
     }
     [data-testid="stAppViewContainer"] .main hr { margin: 0.55rem 0; }
 
-    /* 主标题行：标题 + 副标题同行 */
-    .main-head { display: flex; align-items: baseline; gap: 0.7rem; margin-bottom: 0.35rem; }
+    /* 主标题行：logo + 标题 + 副标题同行 */
+    .main-head { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 0.35rem; }
+    .main-head .mt-logo { flex-shrink: 0; }
     .main-head h1 { font-size: 1.2rem; font-weight: 800; margin: 0; color: #1f2430; }
     .main-head .sub { font-size: 0.78rem; color: #6b7280; }
 
@@ -849,7 +881,7 @@ def render_sidebar():
     """渲染侧边栏配置"""
     with st.sidebar:
         st.markdown(
-            f'<div class="side-head"><span class="logo">🔒</span>'
+            f'<div class="side-head"><span class="logo">{_logo_svg(20)}</span>'
             f'<span class="name">mask-tool</span>'
             f'<span class="ver">v{__version__}</span></div>',
             unsafe_allow_html=True,
@@ -2588,10 +2620,10 @@ def main():
     # 侧边栏
     mode, ner_enabled, irreversible, learn_words = render_sidebar()
 
-    # 标题（紧凑行：标题 + 副标题同行）
+    # 标题（紧凑行：logo + 标题 + 副标题同行）
     st.markdown(
-        '<div class="main-head"><h1>🔒 文件脱敏</h1>'
-        '<span class="sub">上传 → 智能检测 → 交互确认 → 一键脱敏下载</span></div>',
+        f'<div class="main-head">{_logo_svg(34)}<h1>文件脱敏</h1>'
+        f'<span class="sub">上传 → 智能检测 → 交互确认 → 一键脱敏下载</span></div>',
         unsafe_allow_html=True,
     )
 
