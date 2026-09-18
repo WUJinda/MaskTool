@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Output
+output/
+restored/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (user's local config may differ)
+config/local_*.yaml
+# 用户自定义词库，含真实词条，不入库
+config/lexicon.yaml
+config/whitelist_local.yaml
+
+# User data
+samples/
+output/
+restored/
+
+# mask-tool runtime data
+# 批次历史、运行时数据
+.mask-tool/
+
+# 本地测试产物（含敏感样本词料）
+testrun/
