@@ -1,5 +1,3 @@
-<div id="top">
-
 <div align="center">
 
 <img src="docs/logo.png" width="110" alt="mask-tool logo"/>
