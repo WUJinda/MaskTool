@@ -107,8 +107,16 @@ class TestConfigLoading:
         assert result.exit_code == 1
         assert "不存在" in _flat(result.output)
 
-    def test_bare_cwd_fallback_warns_not_silent(self, runner):
-        """任意 CWD：回退到内嵌模板并明示词库为空，不静默（H5）。"""
+    def test_bare_cwd_fallback_warns_not_silent(self, runner, monkeypatch):
+        """任意 CWD：回退到内嵌模板并明示词库为空，不静默（H5）。
+
+        部署锚点同步隔离到 CWD：config_loader 的 runtime_anchor_dirs
+        会兜底到源码树根，开发机上 tracked 的 config/sample_lexicon.yaml
+        将使"词库为空"分支不可达，故模拟真正裸部署环境。
+        """
+        import mask_tool.core.config_loader as cl
+        monkeypatch.setattr(cl, "runtime_anchor_dirs", lambda: [Path.cwd()])
+        monkeypatch.setattr(cl, "writable_anchor_dir", lambda: Path.cwd())
         src = _make_docx(Path("a.docx"), ["联系电话13812345678"])
         result = runner.invoke(app, ["mask", str(src), "--output", "out"])
         assert result.exit_code == 0

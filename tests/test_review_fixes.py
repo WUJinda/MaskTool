@@ -555,8 +555,16 @@ class TestB5WebDetectionTmpCleanup:
 class TestB6WebConfigFallback:
 
     def test_bare_cwd_falls_back_with_warning(self, monkeypatch):
-        """任意 CWD：内嵌模板回退 + 词库为空警告（不再静默）。"""
+        """任意 CWD：内嵌模板回退 + 词库为空警告（不再静默）。
+
+        部署锚点同步隔离到 CWD（与 test_cli 同名测试同理）：否则
+        源码树根的 config/sample_lexicon.yaml 会被锚点链找到，
+        "词库文件不存在"警告不可达。
+        """
         web = pytest.importorskip("mask_tool.web.app")
+        import mask_tool.core.config_loader as cl
+        monkeypatch.setattr(cl, "runtime_anchor_dirs", lambda: [Path.cwd()])
+        monkeypatch.setattr(cl, "writable_anchor_dir", lambda: Path.cwd())
         warns = []
         monkeypatch.setattr(web.st, "warning", lambda m, **kw: warns.append(str(m)))
 

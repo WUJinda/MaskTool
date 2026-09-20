@@ -36,8 +36,13 @@ WINDOW_SIZE = (1440, 900)
 MIN_SIZE = (1100, 700)
 STARTUP_TIMEOUT = 60  # 秒
 
-_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
-ICON_PATH = _ASSETS_DIR / "masktool.ico"
+# 品牌色（与 assets/icon/masktool-icon.svg 一致）
+# 标题栏底色 = 图标底色深蓝紫；边框/强调色 = 遮蔽条品牌紫；标题文字用白
+_CAPTION_BG = "#1E2440"
+_BORDER_ACCENT = "#5B6EE8"
+_CAPTION_FG = "#FFFFFF"
+
+# 图标文件由 _resolve_icon_path() 按运行模式定位（开发/打包两种布局）
 
 
 def _free_port() -> int:
@@ -62,23 +67,88 @@ def _wait_ready(port: int, timeout: float = STARTUP_TIMEOUT) -> None:
     raise RuntimeError(f"Streamlit 未在 {timeout}s 内就绪（端口 {port}）")
 
 
+def _resolve_app_file() -> Path:
+    """定位 web/app.py：开发模式在源码树，frozen 在 PyInstaller 数据目录。"""
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", "") or Path(sys.executable).parent)
+        return base / "mask_tool" / "web" / "app.py"
+    return Path(__file__).resolve().parent / "web" / "app.py"
+
+
 def _start_server(port: int) -> subprocess.Popen:
-    """以子进程启动 streamlit（仅本机监听、headless、关遥测）。"""
-    app_file = Path(__file__).resolve().parent / "web" / "app.py"
-    cmd = [
-        sys.executable, "-m", "streamlit", "run", str(app_file),
+    """以子进程启动 streamlit（仅本机监听、headless、关遥测）。
+
+    - 开发模式：[python, -m, streamlit, run, app.py, ...]
+    - PyInstaller frozen：exe 不支持 -m，改为 [exe, --mt-streamlit-server, ...]
+      重启自身，子进程在 _streamlit_child_main() 中进程内执行 streamlit CLI。
+    """
+    app_file = _resolve_app_file()
+    common = [
         "--server.port", str(port),
         "--server.address", "127.0.0.1",
         "--server.headless", "true",
         "--browser.gatherUsageStats", "false",
+        # PyInstaller 环境下 streamlit 会误判为开发模式并拒绝 server.port，
+        # 显式关闭（正常安装下与默认值一致，无副作用）
+        "--global.developmentMode", "false",
     ]
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--mt-streamlit-server", *common]
+        cwd = str(Path(sys.executable).parent)
+    else:
+        cmd = [sys.executable, "-m", "streamlit", "run", str(app_file), *common]
+        cwd = str(app_file.parents[2])
+
+    stderr_f: object = subprocess.DEVNULL
+    if getattr(sys, "frozen", False):
+        # frozen 无控制台：streamlit 子进程的 stderr 落日志便于排障（审查 P2-9）
+        try:
+            log_dir = Path(
+                os.environ.get("LOCALAPPDATA", str(Path.home()))
+            ) / "mask-tool"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            stderr_f = open(log_dir / "streamlit.log", "ab")
+        except Exception:
+            stderr_f = subprocess.DEVNULL
     return subprocess.Popen(
         cmd,
-        cwd=str(app_file.parents[2]),
+        cwd=cwd,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=stderr_f,
+        # 隐藏 Streamlit 自带的 Deploy 按钮（云端部署推广，与本地工具无关）
+        env={**os.environ, "STREAMLIT_CLIENT_TOOLBAR_MODE": "minimal"},
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
     )
+
+
+def _streamlit_child_main() -> None:
+    """PyInstaller frozen 子进程模式：作为 streamlit server 运行。
+
+    父进程以 [exe, --mt-streamlit-server, --server.port, ...] 启动本进程；
+    这里把剩余参数转交 streamlit CLI 在进程内执行（等效 -m streamlit run）。
+    """
+    from streamlit.web import cli as stcli
+
+    app_file = _resolve_app_file()
+    sys.argv = ["streamlit", "run", str(app_file), *sys.argv[2:]]
+    try:
+        stcli.main()
+    except SystemExit:
+        raise
+    except BaseException:
+        # windowed exe 无 stderr：崩溃原因落日志，再原样退出
+        import traceback
+        try:
+            log_dir = Path(
+                os.environ.get("LOCALAPPDATA", str(Path.home()))
+            ) / "mask-tool"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            (log_dir / "streamlit-child-error.log").write_text(
+                traceback.format_exc(), encoding="utf-8"
+            )
+        except Exception:
+            pass
+        raise
 
 
 def _terminate_tree(proc: subprocess.Popen) -> None:
@@ -162,7 +232,77 @@ _DOWNLOAD_SHIM_JS = """
 """
 
 
+def _resolve_icon_path() -> Path:
+    """定位 masktool.ico：开发模式在项目根 assets/，frozen 在 _MEIPASS/assets/
+    （spec 将其收集到 _internal/assets/），逐候选探测。"""
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", "")
+        if meipass:
+            candidates.append(Path(meipass) / "assets" / "masktool.ico")
+        candidates.append(Path(sys.executable).parent / "assets" / "masktool.ico")
+    else:
+        candidates.append(Path(__file__).resolve().parents[2] / "assets" / "masktool.ico")
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[-1]
+
+
+def _set_app_user_model_id() -> None:
+    """显式 AppUserModelID：统一任务栏分组/跳转列表标识。
+
+    不设置时 Windows 按 exe 默认分组：开发模式（pythonw）与打包模式
+    （mask-tool.exe）行为不一致；显式同一 ID 后两种模式在任务栏/
+    固定到任务栏时表现为同一个应用。
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("masktool.desktop")
+    except Exception:
+        pass
+
+
+def _apply_titlebar_theme() -> None:
+    """Windows 11+：用 DWM API 把标题栏染成品牌色。
+
+    - DWMWA_BORDER_COLOR(34) / DWMWA_CAPTION_COLOR(35) /
+      DWMWA_TEXT_COLOR(36) 仅 Windows 11 (build 22000+) 支持；Win10 及更早
+      调用失败，静默保持系统默认标题栏（降级安全）。
+    - 通过窗口标题定位 HWND（pywebview 未公开原生句柄）。
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        hwnd = ctypes.windll.user32.FindWindowW(None, APP_TITLE)
+        if not hwnd:
+            return
+
+        def _set_attr(attr: int, rgb_hex: str) -> None:
+            r = int(rgb_hex[1:3], 16)
+            g = int(rgb_hex[3:5], 16)
+            b = int(rgb_hex[5:7], 16)
+            color = wintypes.COLORREF((b << 16) | (g << 8) | r)  # 0x00BBGGRR
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd), wintypes.DWORD(attr),
+                ctypes.byref(color), ctypes.sizeof(color),
+            )
+
+        _set_attr(34, _BORDER_ACCENT)   # 窗口边框 DWMWA_BORDER_COLOR
+        _set_attr(35, _CAPTION_BG)      # 标题栏底色 DWMWA_CAPTION_COLOR
+        _set_attr(36, _CAPTION_FG)      # 标题文字 DWMWA_TEXT_COLOR
+    except Exception:
+        pass  # 不支持/失败时保持系统默认标题栏，不影响功能
+
+
 def main() -> None:
+    _set_app_user_model_id()
     port = _free_port()
     proc = _start_server(port)
     window_ref: list = []
@@ -195,11 +335,81 @@ def main() -> None:
     window.events.loaded += _on_loaded
     window.events.closed += lambda: _terminate_tree(proc)
 
+    def _on_shown() -> None:
+        _apply_titlebar_theme()
+
+    window.events.shown += _on_shown
+
+    icon_file = _resolve_icon_path()
     try:
-        webview.start(icon=str(ICON_PATH) if ICON_PATH.exists() else None)
+        webview.start(icon=str(icon_file) if icon_file.exists() else None)
     finally:
         _terminate_tree(proc)
 
 
+def _fatal_dialog(exc: BaseException) -> None:
+    """无控制台场景（pythonw/双击启动）下的启动失败呈现：原生弹窗 + 日志文件。
+
+    有控制台时 stderr 仍可用，但统一走这里也不损失信息。
+    """
+    import ctypes
+    import traceback
+    from datetime import datetime
+
+    log_path: Path | None = None
+    try:
+        log_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "mask-tool"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "desktop-error.log"
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(f"\n[{datetime.now().isoformat(timespec='seconds')}]\n")
+            f.write(traceback.format_exc())
+            f.write("\n")
+    except Exception:
+        log_path = None  # 日志写不进去不阻断弹窗
+
+    lines = [
+        "mask-tool 启动失败。",
+        "",
+        f"错误：{exc.__class__.__name__}: {exc}",
+        "",
+        "常见原因：",
+        "  1. 依赖未安装：pip install -e \".[app]\"",
+        "  2. WebView2 运行时缺失：",
+        "     https://developer.microsoft.com/microsoft-edge/webview2/",
+        "  3. 首次使用请先运行 install-windows.bat",
+    ]
+    if log_path is not None:
+        lines += ["", f"详细日志：{log_path}"]
+    text = "\n".join(lines)
+
+    if os.name == "nt":
+        try:
+            # MB_ICONERROR(0x10) | MB_OK(0x0) | MB_TOPMOST(0x40000)
+            ctypes.windll.user32.MessageBoxW(0, text, "mask-tool 启动错误", 0x10 | 0x40000)
+            return
+        except Exception:
+            pass
+    # 非 Windows / 弹窗失败：退回 stderr
+    try:
+        sys.stderr.write(text + "\n" + traceback.format_exc() + "\n")
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    main()
+    # PyInstaller frozen 下的 multiprocessing 子进程支持（streamlit 内部依赖）
+    import multiprocessing
+
+    multiprocessing.freeze_support()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--mt-streamlit-server":
+        # PyInstaller 子进程模式（由 _start_server 启动）：直接作为 streamlit
+        # server 运行，不走桌面窗口逻辑
+        _streamlit_child_main()
+    else:
+        try:
+            main()
+        except BaseException as exc:  # 弹窗后仍以非零码退出
+            _fatal_dialog(exc)
+            raise SystemExit(1)
