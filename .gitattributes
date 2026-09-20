@@ -1,0 +1,4 @@
+# Windows 批处理必须 CRLF 行尾（cmd 解析依赖），不随 autocrlf 配置漂移
+*.bat text eol=crlf
+# macOS 启动脚本保持 LF
+*.command text eol=lf

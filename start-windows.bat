@@ -1,28 +1,47 @@
 @echo off
-title mask-tool 文件脱敏工具
-rem mask-tool 桌面应用启动器（主入口）：打开 pywebview 原生窗口
-rem 关闭窗口即完全退出，无残留后台服务
+title mask-tool
+rem mask-tool desktop launcher (main entry): opens pywebview native window.
+rem Launches the app via pythonw (no console): this window closes itself
+rem right after firing the app; closing the app window exits everything,
+rem leaving no background services behind.
+rem For install/diagnostics run install-windows.bat. On startup failure the
+rem app shows a native error dialog; details in
+rem %LOCALAPPDATA%\mask-tool\desktop-error.log
 
 cd /d "%~dp0"
 
 if not exist "pyproject.toml" (
-    echo 错误：请在 mask-tool 项目目录中运行此脚本
+    echo [ERROR] Please run this script from the mask-tool project directory.
     pause
     exit /b 1
 )
 
-if exist ".venv\Scriptsctivate.bat" (
-    call .venv\Scriptsctivate.bat
+rem Preferred: venv pythonw (no console window)
+if exist ".venv\Scripts\pythonw.exe" (
+    start "" ".venv\Scripts\pythonw.exe" -m mask_tool.desktop
+    exit /b 0
 )
 
-echo 正在启动 mask-tool 桌面窗口...
+rem Fallback: activate venv, then any pythonw on PATH
+if exist ".venv\Scripts\activate.bat" (
+    call ".venv\Scripts\activate.bat"
+)
+
+where pythonw >nul 2>nul
+if not errorlevel 1 (
+    start "" pythonw -m mask_tool.desktop
+    exit /b 0
+)
+
+rem Last resort: console mode (window kept for troubleshooting)
+echo Starting mask-tool desktop (console fallback)...
 python -m mask_tool.desktop
 
 if errorlevel 1 (
     echo.
-    echo [启动失败] 常见原因：
-    echo   1. 依赖未安装：pip install -e ".[app]"
-    echo   2. WebView2 运行时缺失：https://developer.microsoft.com/microsoft-edge/webview2/
-    echo   3. 首次使用请先运行 install-windows.bat
+    echo [FAILED] Common causes:
+    echo   1. Dependencies missing: pip install -e ".[app]"
+    echo   2. WebView2 runtime missing: https://developer.microsoft.com/microsoft-edge/webview2/
+    echo   3. First time setup: run install-windows.bat first
     pause
 )
