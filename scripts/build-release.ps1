@@ -1,7 +1,8 @@
 # build-release.ps1 - mask-tool one-click release build
 #
 # Standard flow: stop running instance -> pytest -> PyInstaller ->
-#   auto-verify (launch exe + health check) -> versioned portable zip.
+#   auto-verify (exe + health check + page-level render check) ->
+#   versioned portable zip.
 #
 # Usage:
 #   .venv\Scripts\python.exe is NOT needed; run from anywhere:
@@ -95,13 +96,34 @@ if (-not $SkipVerify) {
             } catch { }
         }
     }
-    # always close the verification instance
-    Get-Process -Name "mask-tool" -ErrorAction SilentlyContinue | Stop-Process -Force
     if (-not $ok) {
+        Get-Process -Name "mask-tool" -ErrorAction SilentlyContinue | Stop-Process -Force
         Fail ("health check failed (exe started but streamlit not ready in 60s). " +
               "Check %LOCALAPPDATA%\mask-tool\streamlit-child-error.log and streamlit.log")
     }
     Write-Host "       health check OK (HTTP 200)" -ForegroundColor Green
+
+    # ---- page-level verification (2026-09-20) --------------------------------
+    # Streamlit only executes the page script after a browser websocket
+    # connects, and script errors (e.g. the v0.1.2 frozen ImportError caused
+    # by missing mask_tool modules in PYZ) are sent to the browser only -
+    # neither the health endpoint nor server logs reveal them.
+    # verify_page.py loads the page in headless Edge (CDP) and asserts DOM
+    # markers: no stException / sidebar present / settings component rooted.
+    # Exit codes: 0=PASS, 1/2=FAIL, 3=SKIP (missing Edge or websocket-client).
+    # NOTE: runs while the exe is still alive; instance closed afterwards.
+    & .venv\Scripts\python.exe scripts\verify_page.py --port $port --timeout 60
+    switch ($LASTEXITCODE) {
+        0 { Write-Host "       page render OK (headless Edge)" -ForegroundColor Green }
+        3 { Write-Host "       [WARN] page-level verify skipped (Edge or websocket-client unavailable); health check only" -ForegroundColor Yellow }
+        default {
+            Get-Process -Name "mask-tool" -ErrorAction SilentlyContinue | Stop-Process -Force
+            Fail "page-level verify FAILED - page broken despite healthy server (see verify_page output above)"
+        }
+    }
+
+    # always close the verification instance
+    Get-Process -Name "mask-tool" -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 
 # ------------------------------------------------------------------- zip ----

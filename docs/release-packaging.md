@@ -20,13 +20,13 @@ powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
 | 0 | 结束正在运行的 mask-tool.exe（否则文件被占用） | — |
 | 1 | 运行 pytest 全量测试 | 测试不过即中止 |
 | 2 | PyInstaller 打包（`--clean` 全新构建，约 40 秒） | 构建失败即中止 |
-| 3 | **自动验证**：启动刚打包的 exe，轮询 streamlit 健康检查（60 秒内需返回 200），验证完自动关闭 | 未就绪即中止，并提示看日志 |
+| 3 | **自动验证**：启动刚打包的 exe → 轮询 streamlit 健康检查（60 秒内需返回 200）→ **页面级验证**：`scripts/verify_page.py` 用 headless Edge（CDP）真实加载页面，断言无 stException、侧栏与设置组件在位；验证完自动关闭 | 任一环节不过即中止（Edge/websocket-client 缺失时页面级验证降级为警告） |
 | 4 | 生成版本号命名的便携包 | — |
 | 5 | 输出产物路径与体积 | — |
 
 **产物**：
 - `dist\mask-tool\` —— 绿色目录（开发机上直接双击 `mask-tool.exe` 试用）
-- `dist\mask-tool-portable-v<版本号>.zip` —— 拷去离线机的部署包（约 113MB）
+- `dist\mask-tool-portable-v<版本号>.zip` —— 拷去离线机的部署包（约 135MB，v0.1.2 实测；含 st.dataframe 所需的 pyarrow）
 - 版本号自动读取 `pyproject.toml` 的 `version` 字段；**发新版本前记得先改它**
 
 可选参数：`-SkipTests`（跳过测试）、`-SkipVerify`（跳过自动验证，不建议）。

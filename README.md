@@ -35,7 +35,7 @@
 
 ### 方式一：免安装便携版（Windows 普通用户推荐）
 
-1. 从 [Releases](https://github.com/WUJinda/MaskTool/releases) 下载 `mask-tool-portable-v*.zip`（约 110 MB）
+1. 从 [Releases](https://github.com/WUJinda/MaskTool/releases) 下载 `mask-tool-portable-v*.zip`（约 135 MB）
 2. 解压到任意目录（免管理员权限，不写注册表，卸载即删目录）
 3. 双击 `mask-tool.exe` —— 依赖全部内置，仅需系统 WebView2 运行时（Win10 较新版本 / Win11 随 Edge 自带）
 
@@ -167,7 +167,7 @@ mask-tool unmask "<批次目录>/<脱敏后目录>" --mapping "<批次目录>/ma
 │   ├── cli/          # CLI 入口（app 启动桌面窗口 / mask / unmask / inspect / config）
 │   ├── core/         # 核心业务（替换引擎 / 检测 / 策略 / 流水线 / 路径脱敏）
 │   ├── adapters/     # 格式适配器（docx / xlsx；pptx / pdf 已屏蔽）
-│   ├── web/          # Streamlit UI 内核（仅供桌面窗口内部渲染，无独立浏览器入口）
+│   ├── web/          # Streamlit UI 内核（app.py 薄入口 + ui/ 模块包 + static/ 样式；仅供桌面窗口渲染）
 │   ├── desktop.py    # pywebview 桌面窗口主入口
 │   ├── store/        # 持久化（映射表 / 词库）
 │   ├── models/       # 数据模型

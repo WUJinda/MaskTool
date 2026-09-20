@@ -31,8 +31,10 @@ datas = [
     *collect_data_files("jieba", include_py_files=False),
     # 包元数据（importlib.metadata）
     *_metadata,
-    # 业务资源：web/app.py（frozen 下由 _MEIPASS/mask_tool/web/app.py 定位）
+    # 业务资源：web/app.py + 设置弹窗自定义组件 + 静态样式（frozen 下由 _MEIPASS/mask_tool/web/ 定位）
     ("src/mask_tool/web/app.py", "mask_tool/web"),
+    ("src/mask_tool/web/components", "mask_tool/web/components"),
+    ("src/mask_tool/web/static", "mask_tool/web/static"),
     # 配置与词库（config_loader 的 resolve_data_path 锚点：exe 同级 config/ 优先）
     ("config/default.yaml", "config"),
     ("config/lexicon.yaml", "config"),
@@ -45,6 +47,10 @@ datas = [
 hiddenimports = [
     # pywebview Windows 后端（pythonnet/WinForms/EdgeChromium）
     *collect_submodules("webview.platforms"),
+    # mask_tool 全量子模块：app.py 仅作数据文件收集（streamlit run 脚本），
+    # 其 import 链（core/adapters/web.ui 等）不会被静态分析发现；不收集则
+    # frozen 页面直接 ImportError（v0.1.2 便携包实测踩坑，2026-09-20 修复）
+    *collect_submodules("mask_tool"),
     # streamlit 运行时动态导入
     "streamlit.web.cli",
     "streamlit.runtime.scriptrunner.magic_funcs",
