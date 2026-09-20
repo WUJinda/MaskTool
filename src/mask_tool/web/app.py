@@ -198,39 +198,52 @@ def _inject_css():
     /* 整体 */
     .main .block-container { padding-top: 2rem; }
     stApp { background: #f8f9fb; }
+    html[data-app-theme="dark"] stApp { background: transparent; }
 
     /* ── 侧边栏：紧凑化（2.3 UI 重构）── */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #191a2e 0%, #151a33 100%);
+        background: linear-gradient(180deg, #ffffff 0%, #f3f4f8 100%);
+        border-right: 1px solid rgba(25,26,46,.08);
         padding: 0.35rem 0.85rem 1rem;
     }
-    [data-testid="stSidebar"] * { color: #dfe2ee !important; }
-    /* 收紧侧栏内垂直间距（覆盖 Streamlit 内联 gap） */
+    /* light 模式默认暗色文字；dark 模式在下方「暗色主题适配」区块覆盖为浅色 */
+    [data-testid="stSidebar"] * { color: #343b4e !important; }
+    /* 收紧侧栏内垂直间距（覆盖 Streamlit 内联 gap）；组内间距较原值 +5% */
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: 0.5rem !important;
+        gap: 0.525rem !important;
     }
+    /* 侧栏功能分组卡（st.container(border=True) 包裹 side-label 的容器）：
+       微弱底色圆角容器，组间留白分组 */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(> .stElementContainer .side-label) {
+        border: 1px solid rgba(25,26,46,.1) !important;
+        background: rgba(25,26,46,.03);
+        border-radius: 10px !important;
+        padding: 0.55rem 0.6rem !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(> .stElementContainer .side-label)
+        [data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
     /* 紧凑头部：logo + 名称 + 版本同一行 */
     .side-head { display: flex; align-items: center; gap: 0.45rem; margin: 0.1rem 0 0.15rem; }
     .side-head .logo { display: flex; flex-shrink: 0; line-height: 0; }
-    .side-head .name { font-size: 1rem; font-weight: 800; color: #fff !important; letter-spacing: 0.01em; }
-    .side-head .ver { font-size: 0.68rem; color: rgba(226,229,240,.55) !important; }
-    /* 小节标签：代替大号 st.subheader */
+    .side-head .name { font-size: 1rem; font-weight: 800; color: #1e2440 !important; letter-spacing: 0.01em; }
+    .side-head .ver { font-size: 0.68rem; color: rgba(30,36,64,.55) !important; }
+    /* 小节标签：代替大号 st.subheader（组间留白大于组内，用于功能区分） */
     .side-label {
         font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
-        color: rgba(226,229,240,.55) !important;
+        color: rgba(30,36,64,.5) !important;
         display: flex; align-items: center; gap: 0.4rem;
-        margin: 0.45rem 0 0.05rem;
+        margin: 0.1rem 0 0.1rem;
     }
-    .side-label::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,.08); }
+    .side-label::after { content: ""; flex: 1; height: 1px; background: rgba(25,26,46,.1); }
     /* 词库徽章行：代替大号 st.metric */
     .lex-chip {
         display: flex; align-items: center; justify-content: space-between;
-        background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1);
+        background: rgba(25,26,46,.045); border: 1px solid rgba(25,26,46,.1);
         border-radius: 7px; padding: 0.32rem 0.6rem; margin-bottom: 0.15rem;
         font-size: 0.8rem;
     }
     .lex-chip b { font-size: 0.8rem; font-weight: 600; }
-    .lex-chip .cnt { font-size: 0.8rem; font-weight: 800; color: #9fb0ff !important; }
+    .lex-chip .cnt { font-size: 0.8rem; font-weight: 800; color: #5b6ee8 !important; }
     /* 侧栏按钮：品牌渐变 + 白色加粗文字（更清晰） */
     [data-testid="stSidebar"] .stButton > button {
         background: linear-gradient(135deg, #5b6ee8 0%, #764ba2 100%) !important;
@@ -253,69 +266,6 @@ def _inject_css():
     /* 侧栏折叠区紧凑 */
     [data-testid="stSidebar"] [data-testid="stExpanderDetails"] { padding-top: 0.2rem !important; }
     [data-testid="stSidebar"] details summary { padding: 0.3rem 0 !important; font-size: 0.82rem; }
-
-    /* 指标卡片 */
-    .metric-card {
-        background: white;
-        border-radius: 12px;
-        padding: 1rem 1.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-        text-align: center;
-    }
-    .metric-card .value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-    .metric-card .label {
-        font-size: 0.85rem;
-        color: #666;
-        margin-top: 0.25rem;
-    }
-
-    /* 检测结果表格 */
-    .detection-table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        font-size: 0.9rem;
-    }
-    .detection-table th {
-        background: #1a1a2e;
-        color: white;
-        padding: 0.6rem 0.8rem;
-        text-align: left;
-        font-weight: 600;
-        position: sticky;
-        top: 0;
-    }
-    .detection-table th:first-child { border-radius: 8px 0 0 0; }
-    .detection-table th:last-child { border-radius: 0 8px 0 0; }
-    .detection-table td {
-        padding: 0.5rem 0.8rem;
-        border-bottom: 1px solid #eee;
-        vertical-align: middle;
-    }
-    .detection-table tr:hover td { background: #f0f4ff; }
-    .detection-table .text-cell {
-        font-weight: 600;
-        color: #c0392b;
-        max-width: 200px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .detection-table .context-cell {
-        color: #555;
-        font-size: 0.82rem;
-        max-width: 350px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .detection-table .confidence-high { color: #27ae60; font-weight: 700; }
-    .detection-table .confidence-mid { color: #f39c12; font-weight: 600; }
-    .detection-table .confidence-low { color: #95a5a6; }
 
     /* 文件卡片 */
     .file-card {
@@ -378,28 +328,6 @@ def _inject_css():
     .step.done { background: #27ae60; color: white; }
     .step.pending { background: #eee; color: #999; }
     .step-arrow { color: #ccc; }
-
-    /* 标签页 */
-    .tab-container {
-        display: flex;
-        gap: 0;
-        border-bottom: 2px solid #eee;
-        margin-bottom: 1rem;
-    }
-    .tab {
-        padding: 0.6rem 1.2rem;
-        cursor: pointer;
-        font-weight: 500;
-        color: #666;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -2px;
-        transition: all 0.2s;
-    }
-    .tab.active {
-        color: #667eea;
-        border-bottom-color: #667eea;
-    }
-    .tab:hover { color: #667eea; }
 
     /* 成功横幅 */
     .success-banner {
@@ -497,8 +425,91 @@ def _inject_css():
     .stSelectbox [data-baseweb="select"] > div { min-height: 2rem !important; font-size: 0.82rem !important; }
     .stCheckbox { min-height: 1.9rem !important; }
     .stCheckbox label p { font-size: 0.82rem !important; }
+
+    /* ── 暗色主题适配（html[data-app-theme] 由注入脚本实时维护）── */
+    /* 侧边栏恢复深色玻璃风 */
+    html[data-app-theme="dark"] [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #191a2e 0%, #151a33 100%);
+        border-right: 1px solid rgba(255,255,255,.08);
+    }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] * { color: #dfe2ee !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(> .stElementContainer .side-label) {
+        border-color: rgba(255,255,255,.09) !important;
+        background: rgba(255,255,255,.035);
+    }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-head .name { color: #fff !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-head .ver { color: rgba(226,229,240,.55) !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-label { color: rgba(226,229,240,.55) !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-label::after { background: rgba(255,255,255,.08); }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .lex-chip {
+        background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1);
+    }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .lex-chip .cnt { color: #9fb0ff !important; }
+    /* 主内容区暗色适配 */
+    html[data-app-theme="dark"] .main-head h1 { color: #e8eaf2; }
+    html[data-app-theme="dark"] .main-head .sub { color: #9aa3b5; }
+    html[data-app-theme="dark"] .up-title { color: #aab2c5; }
+    html[data-app-theme="dark"] .up-title b { color: #e8eaf2; }
+    html[data-app-theme="dark"] .up-title span { color: #8a93a5; }
+    html[data-app-theme="dark"] .mi-label b { color: #e8eaf2; }
+    html[data-app-theme="dark"] .fchip {
+        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.13);
+        box-shadow: none;
+    }
+    html[data-app-theme="dark"] .fchip .fn { color: #dfe3ee; }
+    html[data-app-theme="dark"] .fchip .fs { color: #8a93a5; }
+    html[data-app-theme="dark"] .badge { background: rgba(91,110,232,.25); color: #9fb0ff; }
+    html[data-app-theme="dark"] .stat {
+        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.11);
+        box-shadow: none;
+    }
+    html[data-app-theme="dark"] .stat .v { color: #e8eaf2; }
+    html[data-app-theme="dark"] .stat .k { color: #9aa3b5; }
+    html[data-app-theme="dark"] .stat.s-auto .v { color: #2fbf71; }
+    html[data-app-theme="dark"] .stat.s-sugg .v { color: #e0a13e; }
+    html[data-app-theme="dark"] .stat.s-hint .v { color: #8a93a5; }
+    html[data-app-theme="dark"] .col-sep { background: rgba(255,255,255,.16); }
+    html[data-app-theme="dark"] .step.pending { background: rgba(255,255,255,.09); color: #8a93a5; }
+    html[data-app-theme="dark"] .step-arrow { color: #5a6274; }
+    html[data-app-theme="dark"] .file-card {
+        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12);
+    }
+    html[data-app-theme="dark"] .file-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+    html[data-app-theme="dark"] .file-card .name { color: #dfe3ee; }
+    html[data-app-theme="dark"] .file-card .size { color: #8a93a5; }
     </style>
     """, unsafe_allow_html=True)
+
+    # 主题侦测脚本：Streamlit 未暴露主题 CSS 变量，且 st.context.theme 需 reload 才更新；
+    # 这里在隐形 iframe 中监听父页 .stApp 的 class/style 变化（切主题时 emotion 会更换
+    # class），按背景亮度在 <html> 上维护 data-app-theme="light|dark"，供上方 CSS 即时切换。
+    import streamlit.components.v1 as _components
+    _components.html(
+        """
+        <script>
+        (function () {
+          try {
+            var d = window.parent.document;
+            function upd() {
+              var app = d.querySelector('.stApp');
+              if (!app) return;
+              var bg = getComputedStyle(app).backgroundColor || '';
+              var m = bg.match(/([\\d]+)\\s*,\\s*([\\d]+)\\s*,\\s*([\\d]+)/);
+              if (!m) return;
+              var lum = (parseInt(m[1],10)*299 + parseInt(m[2],10)*587 + parseInt(m[3],10)*114) / 1000;
+              d.documentElement.setAttribute('data-app-theme', lum > 128 ? 'light' : 'dark');
+            }
+            upd();
+            var app = d.querySelector('.stApp');
+            if (app && typeof MutationObserver !== 'undefined') {
+              new MutationObserver(upd).observe(app, {attributes: true, attributeFilter: ['class','style']});
+            }
+          } catch (e) { /* 跨域/异常时静默，保持默认 light */ }
+        })();
+        </script>
+        """,
+        height=0,
+    )
 
 
 # ──────────────────────────────────────────────
@@ -898,126 +909,184 @@ def render_sidebar():
             _reset_task_state()
             st.rerun()
 
-        # 运行模式
-        st.markdown('<div class="side-label">运行模式</div>', unsafe_allow_html=True)
-        mode = st.selectbox(
-            "选择模式",
-            options=["focused", "smart", "strict", "aggressive"],
-            format_func=lambda x: {
-                "focused": "🎯 精准模式",
-                "smart": "🧠 智能模式（推荐）",
-                "strict": "🔒 严格模式",
-                "aggressive": "🚀 激进模式",
-            }.get(x, x),
-            index=1,
-        )
-        st.caption(MODE_DESCRIPTIONS.get(mode, ""))
+        # 运行模式（功能分组卡）
+        with st.container(border=True):
+            st.markdown('<div class="side-label">运行模式</div>', unsafe_allow_html=True)
+            mode = st.selectbox(
+                "选择模式",
+                options=["focused", "smart", "strict", "aggressive"],
+                format_func=lambda x: {
+                    "focused": "🎯 精准模式",
+                    "smart": "🧠 智能模式（推荐）",
+                    "strict": "🔒 严格模式",
+                    "aggressive": "🚀 激进模式",
+                }.get(x, x),
+                index=1,
+                help=("运行模式决定自动脱敏的激进程度：精准=仅词典高置信命中；"
+                      "智能=自动与建议平衡（推荐）；严格=高中置信度分级处理；"
+                      "激进=尽可能多脱敏，适合 AI 预处理"),
+            )
+            st.caption(MODE_DESCRIPTIONS.get(mode, ""))
 
-        # NER 开关
-        st.markdown('<div class="side-label">识别引擎</div>', unsafe_allow_html=True)
-        ner_enabled = st.toggle(
-            "启用 jieba NER",
-            value=True,
-            help="启用后可识别词典未覆盖的实体（人名、地名、机构名等），但可能产生误识别",
-        )
-
-        # 脱敏选项
-        st.markdown('<div class="side-label">脱敏选项</div>', unsafe_allow_html=True)
-        irreversible = st.checkbox(
-            "不可逆脱敏",
-            value=False,
-            help="启用后将用 *** 替换敏感信息，无法还原",
-        )
-        learn_words = st.checkbox(
-            "学习新词到词库",
-            value=True,
-            help="确认时标记为'加入词库'的词将写入词库文件",
-        )
-
-        # 词库管理
-        st.markdown('<div class="side-label">词库管理</div>', unsafe_allow_html=True)
-        lexicon_info = _get_lexicon_info()
-        if lexicon_info:
-            st.markdown(
-                f'<div class="lex-chip"><b>📖 词库词条</b>'
-                f'<span class="cnt">{lexicon_info["total"]:,} 条</span></div>',
-                unsafe_allow_html=True,
+        # NER 开关（功能分组卡）
+        with st.container(border=True):
+            st.markdown('<div class="side-label">识别引擎</div>', unsafe_allow_html=True)
+            ner_enabled = st.toggle(
+                "启用 jieba NER",
+                value=True,
+                help="启用后可识别词典未覆盖的实体（人名、地名、机构名等），但可能产生误识别",
             )
 
-            # 2.1: 每个类别可展开查看明细
-            lexicon_data = _get_lexicon_data()
-            if lexicon_data:
-                for cat in sorted(lexicon_data.keys(), key=lambda c: -len(lexicon_data[c])):
-                    label = TYPE_LABELS.get(DetectionType(cat), cat)
-                    count = len(lexicon_data[cat])
-                    with st.expander(f"{label}: {count} 条"):
-                        for word in lexicon_data[cat]:
-                            st.code(word)
-        else:
-            st.caption("词库未加载")
-
-        # 2.2: 手动录入词条
-        with st.expander("✏️ 手动录入词条", expanded=False):
-            valid_categories = {t.value: TYPE_LABELS.get(t, t.value) for t in DetectionType}
-            col_cat, col_word = st.columns([1, 2])
-            with col_cat:
-                input_cat = st.selectbox(
-                    "类别",
-                    options=list(valid_categories.keys()),
-                    format_func=lambda x: valid_categories[x],
-                    key="manual_cat",
-                    label_visibility="collapsed",
-                )
-            with col_word:
-                input_words = st.text_area(
-                    "词条（多条用逗号或换行分隔）",
-                    placeholder="输入词条，多条用逗号或换行分隔...",
-                    key="manual_words",
-                    label_visibility="collapsed",
-                    height=70,
-                )
-            # "其他"类别：允许自定义
-            if input_cat == "custom":
-                custom_cat_name = st.text_input(
-                    "自定义类别名称（留空则归入 custom）",
-                    key="custom_cat_name",
-                    placeholder="如：brand, department...",
-                )
-            if st.button("➕ 添加到词库", use_container_width=True, key="add_words_btn"):
-                _add_words_to_lexicon(input_cat, input_words, custom_cat_name if input_cat == "custom" else None)
-
-        # 批量导入词库
-        with st.expander("📥 批量导入词条", expanded=False):
-            st.caption("支持 YAML 或 TXT 格式")
-            import_file = st.file_uploader(
-                "选择词库文件",
-                type=["yaml", "yml", "txt"],
-                key="lexicon_upload",
-                label_visibility="collapsed",
+        # 脱敏选项（功能分组卡）
+        with st.container(border=True):
+            st.markdown('<div class="side-label">脱敏选项</div>', unsafe_allow_html=True)
+            irreversible = st.checkbox(
+                "不可逆脱敏",
+                value=False,
+                help="启用后将用 *** 替换敏感信息，无法还原",
             )
-            if import_file:
-                _import_lexicon(import_file)
+            learn_words = st.checkbox(
+                "学习新词到词库",
+                value=True,
+                help="确认时标记为'加入词库'的词将写入词库文件",
+            )
 
-        st.markdown('<div class="side-label">关于</div>', unsafe_allow_html=True)
-        st.caption("mask-tool · MIT License")
+        # 词库管理（功能分组卡）
+        with st.container(border=True):
+            st.markdown('<div class="side-label">词库管理</div>', unsafe_allow_html=True)
+            lexicon_info = _get_lexicon_info()
+            if lexicon_info:
+                st.markdown(
+                    f'<div class="lex-chip"><b>📖 词库词条</b>'
+                    f'<span class="cnt">{lexicon_info["total"]:,} 条</span></div>',
+                    unsafe_allow_html=True,
+                )
+
+                # 2.1: 每个类别可展开查看明细
+                lexicon_data = _get_lexicon_data()
+                if lexicon_data:
+                    for cat in sorted(lexicon_data.keys(), key=lambda c: -len(lexicon_data[c])):
+                        label = TYPE_LABELS.get(DetectionType(cat), cat)
+                        count = len(lexicon_data[cat])
+                        with st.expander(f"{label}: {count} 条"):
+                            for word in lexicon_data[cat]:
+                                st.code(word)
+            else:
+                st.caption("词库未加载")
+
+            # 2.2: 手动录入词条
+            with st.expander("✏️ 手动录入词条", expanded=False):
+                valid_categories = {t.value: TYPE_LABELS.get(t, t.value) for t in DetectionType}
+                col_cat, col_word = st.columns([1, 2])
+                with col_cat:
+                    input_cat = st.selectbox(
+                        "类别",
+                        options=list(valid_categories.keys()),
+                        format_func=lambda x: valid_categories[x],
+                        key="manual_cat",
+                        label_visibility="collapsed",
+                        help="选择新词条归属的敏感信息类别；选「其他」可自定义类别名称",
+                    )
+                with col_word:
+                    input_words = st.text_area(
+                        "词条（多条用逗号或换行分隔）",
+                        placeholder="输入词条，多条用逗号或换行分隔...",
+                        key="manual_words",
+                        label_visibility="collapsed",
+                        height=70,
+                        help="输入要录入词库的敏感词条，多条之间用逗号或换行分隔",
+                    )
+                # "其他"类别：允许自定义
+                custom_cat_name = None
+                if input_cat == "custom":
+                    custom_cat_name = st.text_input(
+                        "自定义类别名称（留空则归入 custom）",
+                        key="custom_cat_name",
+                        placeholder="如：brand, department...",
+                        help="为「其他」类别指定自定义名称（如 brand、department）；留空则归入默认 custom 类别",
+                    )
+                if st.button(
+                    "➕ 添加到词库",
+                    use_container_width=True,
+                    key="add_words_btn",
+                    help="将上方输入的词条按所选类别写入用户词库（config/lexicon.yaml），保存后立即生效",
+                ):
+                    _add_words_to_lexicon(input_cat, input_words, custom_cat_name if input_cat == "custom" else None)
+
+            # 批量导入词库
+            with st.expander("📥 批量导入词条", expanded=False):
+                st.caption("支持 YAML 或 TXT 格式")
+                import_file = st.file_uploader(
+                    "选择词库文件",
+                    type=["yaml", "yml", "txt"],
+                    key="lexicon_upload",
+                    label_visibility="collapsed",
+                    help="上传 YAML（分类别分组）或 TXT（每行一词）词库文件，导入后与现有词库合并",
+                )
+                if import_file:
+                    _import_lexicon(import_file)
 
     return mode, ner_enabled, irreversible, learn_words
+
+
+def _find_lexicon_file() -> Optional[Path]:
+    """按优先级定位词库文件：用户词库 -> 示例词库。
+
+    锚点链（CWD -> exe 目录 -> 源码树根 -> 打包内置）由
+    core/config_loader.runtime_anchor_dirs 统一提供，修复桌面/bat
+    启动时 cwd 不在项目根导致 ``config/lexicon.yaml`` 相对路径落空、
+    写入报 FileNotFoundError 的问题（2026-09-20）。
+    """
+    from mask_tool.core.config_loader import find_data_file
+
+    return (
+        find_data_file("config/lexicon.yaml")
+        or find_data_file("config/sample_lexicon.yaml")
+    )
+
+
+def _ensure_user_lexicon() -> Optional[Path]:
+    """定位用户词库，不存在则建目录并初始化；失败时提示并返回 None。
+
+    初始化复制源优先级：打包内置 lexicon.yaml（frozen 出厂副本）->
+    sample_lexicon.yaml -> 空文件。所有写入均先 ``mkdir(parents=True)``，
+    避免 config/ 目录缺失时 ``write_text`` 抛 FileNotFoundError。
+    """
+    from mask_tool.core.config_loader import (
+        LEXICON_RELPATH, SAMPLE_LEXICON_RELPATH, find_data_file,
+        resolve_user_lexicon_path,
+    )
+
+    lexicon_path = resolve_user_lexicon_path()
+    if lexicon_path.exists():
+        return lexicon_path
+    try:
+        lexicon_path.parent.mkdir(parents=True, exist_ok=True)
+        source = (
+            find_data_file(LEXICON_RELPATH)   # frozen 内置副本优先（保留出厂词条）
+            or find_data_file(SAMPLE_LEXICON_RELPATH)
+        )
+        if source and source != lexicon_path:
+            shutil.copy2(source, lexicon_path)
+        else:
+            lexicon_path.write_text("", encoding="utf-8")
+    except OSError as exc:
+        st.error(
+            f"❌ 无法创建词库文件：{lexicon_path}（{exc}）。"
+            f"请检查目录权限或将软件放到可写位置后重试。"
+        )
+        return None
+    return lexicon_path
 
 
 def _get_lexicon_data() -> Optional[Dict[str, List[str]]]:
     """读取词库完整数据（分类别返回词条列表）"""
     try:
-        config_paths = [
-            Path("config/lexicon.yaml"),
-            Path("config/sample_lexicon.yaml"),
-            Path(__file__).parent.parent.parent / "config" / "lexicon.yaml",
-            Path(__file__).parent.parent.parent / "config" / "sample_lexicon.yaml",
-        ]
-        for p in config_paths:
-            if p.exists():
-                with open(p, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-                return {k: v for k, v in data.items() if isinstance(v, list)}
+        p = _find_lexicon_file()
+        if p:
+            with open(p, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            return {k: v for k, v in data.items() if isinstance(v, list)}
     except Exception:
         pass
     return None
@@ -1043,18 +1112,18 @@ def _add_words_to_lexicon(category: str, words_text: str, custom_category: Optio
         st.warning("未识别到有效词条")
         return
 
-    # 确保用户词库存在
-    lexicon_path = Path("config/lexicon.yaml")
-    if not lexicon_path.exists():
-        sample_path = Path("config/sample_lexicon.yaml")
-        if sample_path.exists():
-            shutil.copy2(sample_path, lexicon_path)
-        else:
-            lexicon_path.write_text("", encoding="utf-8")
+    # 确保用户词库存在（锄点链解析 + 自动建目录/初始化）
+    lexicon_path = _ensure_user_lexicon()
+    if lexicon_path is None:
+        return
 
     # 读取现有词库
-    with open(lexicon_path, "r", encoding="utf-8") as f:
-        existing = yaml.safe_load(f) or {}
+    try:
+        with open(lexicon_path, "r", encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+    except OSError as exc:
+        st.error(f"❌ 无法读取词库文件 {lexicon_path}：{exc}")
+        return
 
     # 确保类别存在
     if actual_cat not in existing:
@@ -1069,9 +1138,14 @@ def _add_words_to_lexicon(category: str, words_text: str, custom_category: Optio
 
     # 保存
     if added > 0:
-        with open(lexicon_path, "w", encoding="utf-8") as f:
-            yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+        try:
+            with open(lexicon_path, "w", encoding="utf-8") as f:
+                yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+        except OSError as exc:
+            st.error(f"❌ 词库保存失败 {lexicon_path}：{exc}")
+            return
         st.success(f"✅ 成功添加 {added} 条词条到 [{actual_cat}]")
+        st.caption(f"词库文件：{lexicon_path}")
     else:
         st.info("ℹ️ 所有词条已存在于词库中")
 
@@ -1079,23 +1153,16 @@ def _add_words_to_lexicon(category: str, words_text: str, custom_category: Optio
 def _get_lexicon_info() -> Optional[dict]:
     """获取词库统计信息（优先读取用户词库 lexicon.yaml）"""
     try:
-        # 按优先级查找词库文件
-        config_paths = [
-            Path("config/lexicon.yaml"),
-            Path("config/sample_lexicon.yaml"),
-            Path(__file__).parent.parent.parent / "config" / "lexicon.yaml",
-            Path(__file__).parent.parent.parent / "config" / "sample_lexicon.yaml",
-        ]
-        for p in config_paths:
-            if p.exists():
-                with open(p, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-                categories = {k: len(v) for k, v in data.items() if isinstance(v, list)}
-                return {
-                    "total": sum(categories.values()),
-                    "categories": categories,
-                    "path": str(p),
-                }
+        p = _find_lexicon_file()
+        if p:
+            with open(p, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            categories = {k: len(v) for k, v in data.items() if isinstance(v, list)}
+            return {
+                "total": sum(categories.values()),
+                "categories": categories,
+                "path": str(p),
+            }
     except Exception:
         pass
     return None
@@ -1110,19 +1177,18 @@ def _import_lexicon(uploaded_file) -> None:
     """
     import io
 
-    # 确定用户词库路径
-    lexicon_path = Path("config/lexicon.yaml")
-    if not lexicon_path.exists():
-        # 从示例词库复制
-        sample_path = Path("config/sample_lexicon.yaml")
-        if sample_path.exists():
-            shutil.copy2(sample_path, lexicon_path)
-        else:
-            lexicon_path.write_text("", encoding="utf-8")
+    # 确定用户词库路径（锄点链解析 + 自动建目录/初始化）
+    lexicon_path = _ensure_user_lexicon()
+    if lexicon_path is None:
+        return
 
     # 读取现有词库
-    with open(lexicon_path, "r", encoding="utf-8") as f:
-        existing = yaml.safe_load(f) or {}
+    try:
+        with open(lexicon_path, "r", encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+    except OSError as exc:
+        st.error(f"❌ 无法读取词库文件 {lexicon_path}：{exc}")
+        return
 
     # 确保所有类别键存在
     valid_categories = [t.value for t in DetectionType]
@@ -1175,9 +1241,14 @@ def _import_lexicon(uploaded_file) -> None:
 
     # 保存
     if added_count > 0:
-        with open(lexicon_path, "w", encoding="utf-8") as f:
-            yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+        try:
+            with open(lexicon_path, "w", encoding="utf-8") as f:
+                yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+        except OSError as exc:
+            st.error(f"❌ 词库保存失败 {lexicon_path}：{exc}")
+            return
         st.success(f"✅ 成功导入 {added_count} 条新词条到词库")
+        st.caption(f"词库文件：{lexicon_path}")
     else:
         st.info("ℹ️ 没有新词条需要导入（全部已存在）")
 
@@ -2588,13 +2659,22 @@ def _run_masking(
 
 
 def _save_learned_words(learned: dict, config: MaskConfig):
-    """将学习到的词追加到词库文件"""
-    lexicon_path = Path(config.lexicon_path)
-    if not lexicon_path.exists():
-        return
+    """将学习到的词追加到词库文件。
 
-    with open(lexicon_path, "r", encoding="utf-8") as f:
-        existing = yaml.safe_load(f) or {}
+    词库路径已由 config_loader 解析为绝对路径（含 frozen 迁移）；
+    文件缺失时自动建目录初始化（不再静默丢弃学习词），写入失败仅
+    警告不打断主流程。
+    """
+    lexicon_path = Path(config.lexicon_path)
+    try:
+        if not lexicon_path.exists():
+            lexicon_path.parent.mkdir(parents=True, exist_ok=True)
+            lexicon_path.write_text("", encoding="utf-8")
+
+        with open(lexicon_path, "r", encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+    except OSError:
+        return  # 无法读写时不阻断确认主流程
 
     new_count = 0
     for category, words in learned.items():
@@ -2606,8 +2686,11 @@ def _save_learned_words(learned: dict, config: MaskConfig):
                 new_count += 1
 
     if new_count > 0:
-        with open(lexicon_path, "w", encoding="utf-8") as f:
-            yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+        try:
+            with open(lexicon_path, "w", encoding="utf-8") as f:
+                yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+        except OSError as exc:
+            st.warning(f"学习词条保存失败（{lexicon_path}）：{exc}")
 
 
 # ──────────────────────────────────────────────
