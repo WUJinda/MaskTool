@@ -33,6 +33,16 @@
 
 ## 🚀 快速开始
 
+### 方式一：免安装便携版（Windows 普通用户推荐）
+
+1. 从 [Releases](https://github.com/WUJinda/MaskTool/releases) 下载 `mask-tool-portable-v*.zip`（约 110 MB）
+2. 解压到任意目录（免管理员权限，不写注册表，卸载即删目录）
+3. 双击 `mask-tool.exe` —— 依赖全部内置，仅需系统 WebView2 运行时（Win10 较新版本 / Win11 随 Edge 自带）
+
+> 个人词库（`config/lexicon.yaml`）与配置保存在 exe 同级目录，随目录一起迁移；升级覆盖软件目录前请先备份词库。
+
+### 方式二：Python 安装（开发者 / macOS）
+
 ```bash
 # 安装（Python ≥ 3.9）
 pip install -e .
