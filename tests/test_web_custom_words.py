@@ -72,8 +72,11 @@ def _upload(name: str, payload: bytes) -> SimpleNamespace:
 
 def _patch_streamlit(monkeypatch, web):
     """Web 函数级测试：把 st 展示/rerun 类调用全部静音（test_r3_fixes 同法）。"""
-    monkeypatch.setattr(web, "BATCHES_DIR", Path("batches"))
-    monkeypatch.setattr(web, "_add_history", lambda rec: None)
+    # 拆分后（2026-09-20）：BATCHES_DIR/_add_history 的真实读写方在 ui.service
+    from mask_tool.web.ui import service as _svc
+
+    monkeypatch.setattr(_svc, "BATCHES_DIR", Path("batches"))
+    monkeypatch.setattr(_svc, "_add_history", lambda rec: None)
     for fn in ("rerun", "error", "warning", "info", "success", "caption",
                "spinner"):
         monkeypatch.setattr(

@@ -275,8 +275,11 @@ class TestA3B2WebMasking:
             return original_prepare(self, files)
 
         monkeypatch.setattr(Pipeline, "prepare", spy)
-        monkeypatch.setattr(web, "BATCHES_DIR", tmp_path / "batches")
-        monkeypatch.setattr(web, "_add_history", lambda rec: None)
+        # 拆分后（2026-09-20）：真实读写方在 ui.service，补丁打到代码实际解析处
+        from mask_tool.web.ui import service as _svc
+
+        monkeypatch.setattr(_svc, "BATCHES_DIR", tmp_path / "batches")
+        monkeypatch.setattr(_svc, "_add_history", lambda rec: None)
         monkeypatch.setattr(web.st, "rerun", lambda *a, **k: None, raising=False)
         monkeypatch.setattr(web.st, "error", lambda *a, **k: None)
         monkeypatch.setattr(web.st, "warning", lambda *a, **k: None)

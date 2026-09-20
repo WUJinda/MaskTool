@@ -1,0 +1,492 @@
+/* ============================================================
+ * mask-tool 桌面 UI 样式表（由 ui/assets.py::_inject_css 注入 <style>）
+ *
+ * ⚠️ Streamlit 内部结构依赖清单（升级 1.64 → 更高版本时逐项核对）：
+ *   data-testid="stAppViewContainer" / stMain / stHeader / stToolbar
+ *   data-testid="stSidebar" / stSidebarContent / stSidebarCollapseButton / stSidebarExpandButton
+ *   data-testid="stVerticalBlock" / stElementContainer / stExpander / stExpanderDetails
+ *   data-testid="stWidgetLabel" / stCaptionContainer / stCodeBlock / stSelectbox
+ *   data-testid="stTextInput" / stTextArea" / stTabs / stFileUploaderDropzone
+ *   .stApp / .main / .block-container / .stButton button[kind]
+ *   data-baseweb="popover|select" / ul[role="listbox"]
+ * 自有命名空间（不受 Streamlit 升级影响）：
+ *   .side-head .side-label .lex-chip .file-card .up-title .fchip .badge
+ *   .stat .statbar .step .step-arrow .main-head .mi-label 等
+ * ============================================================ */
+
+    /* 整体（注：Streamlit 根为 .stApp class；旧代码误用 stApp 元素选择器从未生效） */
+    .main .block-container { padding-top: 1.2rem; }
+    .stApp { background: #f8f9fb !important; }
+    html[data-app-theme="dark"]:not([data-theme-forced="1"]) .stApp { background: transparent !important; }
+    html[data-app-theme="dark"][data-theme-forced="1"] .stApp { background: #14161f !important; }
+
+    /* ── 手动深色（forced）：同步覆盖 Streamlit 原生主题变量，消除亮色残留 ──
+       自动模式下 Streamlit 自身随系统切深色；手动 forced 时原生 emotion 主题
+       仍是浅色，需在此统一覆盖变量 + 关键原生元素兑底，保证深底浅字。 */
+    html[data-app-theme="dark"][data-theme-forced="1"] body { background: #14161f !important; }
+    html[data-app-theme="dark"][data-theme-forced="1"] .stApp {
+        --background-color: #14161f !important;
+        --secondary-background-color: #1d2032 !important;
+        --tertiary-background-color: #242840 !important;
+        --text-color: #dfe2ee !important;
+        --secondary-text-color: #9aa3b5 !important;
+        --primary-color: #5b6ee8 !important;
+        background-color: #14161f !important;
+        color: #dfe2ee !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] section[data-testid="stMain"],
+    html[data-app-theme="dark"][data-theme-forced="1"] .main,
+    html[data-app-theme="dark"][data-theme-forced="1"] .block-container {
+        background: transparent !important; color: #dfe2ee !important;
+    }
+    /* 文本兑底：段落/标签/列表/说明文字 */
+    html[data-app-theme="dark"][data-theme-forced="1"] .main p,
+    html[data-app-theme="dark"][data-theme-forced="1"] .main span,
+    html[data-app-theme="dark"][data-theme-forced="1"] .main li,
+    html[data-app-theme="dark"][data-theme-forced="1"] .main label,
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stWidgetLabel"] p,
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stCaptionContainer"] {
+        color: #dfe2ee !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stCaptionContainer"],
+    html[data-app-theme="dark"][data-theme-forced="1"] .main small { color: #9aa3b5 !important; }
+    /* 卡片/折叠区/代码块/输入类控件 */
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stExpander"] {
+        background: rgba(255,255,255,.04) !important;
+        border-color: rgba(255,255,255,.12) !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stExpanderDetails"] { color: #dfe2ee !important; }
+    html[data-app-theme="dark"][data-theme-forced="1"] .stCodeBlock pre,
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stCodeBlock"] pre {
+        background: #1d2032 !important; color: #dfe3ee !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stSelectbox"] [role="combobox"],
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stTextInput"] input,
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stTextArea"] textarea {
+        background: #232741 !important; color: #dfe2ee !important;
+        border-color: rgba(255,255,255,.16) !important;
+    }
+    /* forced 深色下次级按钮兑底：仅限主区（侧栏按钮由专属渐变规则管理，
+       避免高特异性兑底覆盖侧栏品牌渐变+白字） */
+    html[data-app-theme="dark"][data-theme-forced="1"] .main .stButton button[kind="secondary"],
+    html[data-app-theme="dark"][data-theme-forced="1"] section[data-testid="stMain"] .stButton button[kind="secondary"] {
+        background: rgba(255,255,255,.08) !important; color: #dfe2ee !important;
+        border-color: rgba(255,255,255,.16) !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] hr { border-color: rgba(255,255,255,.12) !important; }
+    /* 下拉弹出菜单（baseweb popover 挂 body，不受侧栏/主区规则约束） */
+    html[data-app-theme="dark"][data-theme-forced="1"] ul[role="listbox"],
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-baseweb="popover"] > div,
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-baseweb="select"] ul {
+        background: #1d2032 !important; border-color: rgba(255,255,255,.12) !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] ul[role="listbox"] li {
+        color: #dfe2ee !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] ul[role="listbox"] li:hover,
+    html[data-app-theme="dark"][data-theme-forced="1"] ul[role="listbox"] li[aria-selected="true"] {
+        background: rgba(91,110,232,.22) !important; color: #fff !important;
+    }
+    /* 侧栏内原生控件（自动/手动深色通用）：下拉/输入深色底 */
+    html[data-app-theme="dark"] [data-testid="stSidebar"] [data-testid="stSelectbox"] [role="combobox"],
+    html[data-app-theme="dark"] [data-testid="stSidebar"] [data-testid="stTextInput"] input {
+        background: rgba(255,255,255,.08) !important; color: #dfe2ee !important;
+        border-color: rgba(255,255,255,.14) !important;
+    }
+    /* 1.64 selectbox 为 react-aria ComboBox：其内部容器 div 自带白底，需一并覆盖 */
+    html[data-app-theme="dark"] [data-testid="stSidebar"] [data-testid="stSelectbox"] .react-aria-ComboBox div {
+        background-color: rgba(255,255,255,.08) !important;
+        border-color: rgba(255,255,255,.14) !important;
+    }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] [data-testid="stSelectbox"] .react-aria-ComboBox div,
+    html[data-app-theme="dark"] [data-testid="stSidebar"] [data-testid="stSelectbox"] .react-aria-ComboBox input {
+        color: #dfe2ee !important;
+    }
+
+    /* ── 全局输入类控件深色适配（主区+侧栏通用；自动/手动深色均适用）── */
+    /* 下拉/多选/数字输入的 react-aria 容器：白底 → 深底 */
+    html[data-app-theme="dark"] [data-testid="stSelectbox"] .react-aria-ComboBox > div,
+    html[data-app-theme="dark"] [data-testid="stMultiSelect"] .react-aria-ComboBox > div,
+    html[data-app-theme="dark"] [data-testid="stMultiSelect"] > div > div[style],
+    html[data-app-theme="dark"] [data-testid="stNumberInput"] > div > div {
+        background-color: rgba(255,255,255,.06) !important;
+        border: 1px solid rgba(255,255,255,.18) !important;
+        border-radius: 7px !important;
+    }
+    html[data-app-theme="dark"] [data-testid="stSelectbox"] .react-aria-ComboBox div,
+    html[data-app-theme="dark"] [data-testid="stSelectbox"] .react-aria-ComboBox input,
+    html[data-app-theme="dark"] [data-testid="stMultiSelect"] input,
+    html[data-app-theme="dark"] [data-testid="stNumberInput"] input {
+        color: #dfe2ee !important;
+    }
+    /* 文本输入/文本域：深底浅字 */
+    html[data-app-theme="dark"] [data-testid="stTextInput"] input,
+    html[data-app-theme="dark"] [data-testid="stTextArea"] textarea {
+        background-color: rgba(255,255,255,.06) !important;
+        color: #dfe2ee !important;
+        border: 1px solid rgba(255,255,255,.18) !important;
+        caret-color: #dfe2ee !important;
+    }
+    html[data-app-theme="dark"] [data-testid="stTextInput"] input::placeholder,
+    html[data-app-theme="dark"] [data-testid="stTextArea"] textarea::placeholder {
+        color: #7a8296 !important;
+    }
+    /* 控件 label（stWidgetLabel）深色下浅字 */
+    html[data-app-theme="dark"] [data-testid="stWidgetLabel"],
+    html[data-app-theme="dark"] [data-testid="stWidgetLabel"] label,
+    html[data-app-theme="dark"] [data-testid="stElementLabel"] {
+        color: #9aa3b5 !important;
+    }
+    /* 输入类控件的 react-aria 根容器（stTextArea/stTextInput 的 RootElement
+       自带浅灰底，input 本体覆盖不到它） */
+    html[data-app-theme="dark"] [data-testid="stTextAreaRootElement"],
+    html[data-app-theme="dark"] [data-testid="stTextInputRootElement"],
+    html[data-app-theme="dark"] [data-testid="stNumberInputRootElement"] {
+        background-color: rgba(255,255,255,.06) !important;
+        border: 1px solid rgba(255,255,255,.18) !important;
+        border-radius: 7px !important;
+    }
+    /* 类别分布条形图轨道色（自定义 markdown，Python 侧引用该变量） */
+    html[data-app-theme="dark"] { --mt-bar-track: rgba(255,255,255,.08); }
+    /* 下拉弹出菜单边框/阴影（baseweb popover） */
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-baseweb="popover"] {
+        border: 1px solid rgba(255,255,255,.14) !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,.5) !important;
+    }
+
+    /* ── 深色适配补齐（forced）：上传拖拽区/提示条/指标卡/表格/标签页/滚动条 ── */
+    html[data-app-theme="dark"] { color-scheme: dark; }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stFileUploaderDropzone"] {
+        background: rgba(255,255,255,.04) !important;
+        border: 1.5px dashed rgba(255,255,255,.22) !important;
+        border-radius: 10px !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stFileUploaderDropzone"] * {
+        background-color: transparent !important; color: #9aa3b5 !important;
+        border-color: rgba(255,255,255,.14) !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stFileUploaderDropzone"] button {
+        background: rgba(255,255,255,.08) !important; color: #dfe2ee !important;
+        border: 1px solid rgba(255,255,255,.16) !important; border-radius: 7px !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stFileUploaderDropzone"] svg { color: #5b6ee8 !important; }
+    /* 提示条（success/info/warning/error）深色变体 */
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stAlert"] {
+        background: #1d2032 !important; color: #dfe2ee !important;
+        border: 1px solid rgba(255,255,255,.12) !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stAlert"] svg { color: #5b6ee8 !important; }
+    /* 指标卡 */
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stMetric"] {
+        background: rgba(255,255,255,.04) !important;
+        border: 1px solid rgba(255,255,255,.1) !important; border-radius: 10px !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stMetricLabel"] { color: #9aa3b5 !important; }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stMetricValue"] { color: #e8eaf2 !important; }
+    /* 表格容器 */
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stDataFrame"],
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stTable"] {
+        background: #1d2032 !important; color: #dfe2ee !important;
+        border: 1px solid rgba(255,255,255,.1) !important; border-radius: 8px !important;
+    }
+    /* 标签页（st.tabs） */
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        border-color: rgba(255,255,255,.14) !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stTabs"] [data-baseweb="tab"] { color: #9aa3b5 !important; }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] { color: #dfe2ee !important; }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: #5b6ee8 !important; }
+
+    /* ── 桌面版瘦身：隐藏 Streamlit 顶栏与侧栏收起按钮，收紧 logo 上方留白 ── */
+    [data-testid="stHeader"] { height: 0 !important; min-height: 0 !important; background: transparent !important; }
+    [data-testid="stToolbar"], #MainMenu { display: none !important; }
+    [data-testid="stSidebarCollapseButton"], [data-testid="stSidebarExpandButton"],
+    #sidebarCollapse, #sidebarExpand { display: none !important; }
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"],
+    [data-testid="stSidebar"] > div { padding-top: 0 !important; }
+
+    /* 侧栏内容撑满高度：注入的设置图标按钮（#mt-settings-entry）贴底 */
+    [data-testid="stSidebar"] > div > [data-testid="stVerticalBlock"] {
+        min-height: calc(100vh - 0.9rem);
+    }
+
+    /* ── 侧边栏：紧凑化（2.3 UI 重构）── */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #ffffff 0%, #f3f4f8 100%);
+        border-right: 1px solid rgba(25,26,46,.08);
+        padding: 0.35rem 0.85rem 1rem;
+    }
+    /* light 模式默认暗色文字；dark 模式在下方「暗色主题适配」区块覆盖为浅色 */
+    [data-testid="stSidebar"] * { color: #343b4e !important; }
+    /* 收紧侧栏内垂直间距（覆盖 Streamlit 内联 gap）；组内间距较原值 +5% */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.525rem !important;
+    }
+    /* 侧栏功能分组卡（st.container(border=True) 包裹 side-label 的容器）：
+       微弱底色圆角容器，组间留白分组 */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(> .stElementContainer .side-label) {
+        border: 1px solid rgba(25,26,46,.1) !important;
+        background: rgba(25,26,46,.03);
+        border-radius: 10px !important;
+        padding: 0.55rem 0.6rem !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(> .stElementContainer .side-label)
+        [data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
+    /* 紧凑头部：logo + 名称 + 版本同一行 */
+    .side-head { display: flex; align-items: center; gap: 0.45rem; margin: -0.15rem 0 0.5rem; }
+    .side-head .logo { display: flex; flex-shrink: 0; line-height: 0; }
+    .side-head .name { font-size: 1.1rem; font-weight: 800; color: #1e2440 !important; letter-spacing: 0.01em; }
+    .side-head .ver { font-size: 0.75rem; color: rgba(30,36,64,.55) !important; }
+    /* 小节标签：代替大号 st.subheader（组间留白大于组内，用于功能区分） */
+    .side-label {
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+        color: rgba(30,36,64,.5) !important;
+        display: flex; align-items: center; gap: 0.4rem;
+        margin: 0.1rem 0 0.1rem;
+    }
+    .side-label::after { content: ""; flex: 1; height: 1px; background: rgba(25,26,46,.1); }
+    /* 词库徽章行：代替大号 st.metric */
+    .lex-chip {
+        display: flex; align-items: center; justify-content: space-between;
+        background: rgba(25,26,46,.045); border: 1px solid rgba(25,26,46,.1);
+        border-radius: 7px; padding: 0.32rem 0.6rem; margin-bottom: 0.15rem;
+        font-size: 0.8rem;
+    }
+    .lex-chip b { font-size: 0.8rem; font-weight: 600; }
+    .lex-chip .cnt { font-size: 0.8rem; font-weight: 800; color: #5b6ee8 !important; }
+    /* 侧栏按钮：品牌渐变 + 白色加粗文字（更清晰） */
+    [data-testid="stSidebar"] .stButton button {
+        background: linear-gradient(135deg, #5b6ee8 0%, #764ba2 100%) !important;
+        border: none !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 0.85rem !important;
+        height: 2.1rem !important;
+        padding: 0 0.6rem !important;
+        border-radius: 7px !important;
+        box-shadow: 0 2px 8px rgba(91,110,232,.35);
+    }
+    [data-testid="stSidebar"] .stButton button:hover { filter: brightness(1.1); }
+    /* 深色下侧栏按钮保持纯白文字（侧栏 * 全局浅色规则特异性更高，需此覆盖） */
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .stButton button,
+    html[data-app-theme="light"] [data-testid="stSidebar"] .stButton button { color: #ffffff !important; }
+    /* 侧栏控件字号与行高 */
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] span { font-size: 0.82rem; }
+    [data-testid="stSidebar"] small { font-size: 0.72rem !important; line-height: 1.45; }
+    [data-testid="stSidebar"] input[type="checkbox"] { accent-color: #5b6ee8; }
+    /* 侧栏折叠区紧凑 */
+    [data-testid="stSidebar"] [data-testid="stExpanderDetails"] { padding-top: 0.2rem !important; }
+    [data-testid="stSidebar"] details summary { padding: 0.3rem 0 !important; font-size: 0.82rem; }
+
+    /* 文件卡片 */
+    .file-card {
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 0.8rem 1rem;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        transition: box-shadow 0.2s;
+    }
+    .file-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .file-card .icon { font-size: 1.5rem; }
+    .file-card .name { font-weight: 600; color: #333; }
+    .file-card .size { color: #999; font-size: 0.82rem; }
+
+    /* ── 按钮体系：主按钮保持醒目，次级按钮全局紧凑（不换行）── */
+    .stButton button[kind="primary"] {
+        background: linear-gradient(135deg, #5b6ee8 0%, #764ba2 100%);
+        border: none;
+        color: white;
+        font-weight: 700;
+        font-size: 0.9rem;
+        letter-spacing: 0.02em;
+        padding: 0.45rem 1.4rem;
+        border-radius: 8px;
+        transition: transform 0.1s;
+    }
+    .stButton button[kind="primary"]:hover { transform: translateY(-1px); filter: brightness(1.06); }
+    .stButton button[kind="secondary"] {
+        height: 1.95rem !important;
+        padding: 0 0.7rem !important;
+        font-size: 0.78rem !important;
+        font-weight: 600 !important;
+        white-space: nowrap !important;
+        border-radius: 6px !important;
+        line-height: 1 !important;
+    }
+
+    /* 步骤指示器（紧凑） */
+    .step-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-bottom: 0.7rem;
+        flex-wrap: wrap;
+    }
+    .step {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.22rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .step.active { background: #667eea; color: white; }
+    .step.done { background: #27ae60; color: white; }
+    .step.pending { background: #eee; color: #999; }
+    .step-arrow { color: #ccc; }
+
+    /* 成功横幅 */
+    .success-banner {
+        background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+        color: white;
+        padding: 1.5rem 2rem;
+        border-radius: 12px;
+        text-align: center;
+        margin: 1rem 0;
+    }
+    .success-banner h2 { margin: 0 0 0.5rem 0; }
+    .success-banner p { margin: 0; opacity: 0.9; }
+
+    /* ── 2.3 UI 紧凑化新增 ─────────────────── */
+
+    /* 主区整体密度 */
+    .main .block-container { padding-top: 0.9rem; padding-bottom: 2rem; }
+    [data-testid="stAppViewContainer"] .main h4 {
+        font-size: 1.0rem; font-weight: 700;
+        margin: 0.6rem 0 0.35rem;
+    }
+    [data-testid="stAppViewContainer"] .main hr { margin: 0.55rem 0; }
+
+    /* 主标题行：logo + 标题 + 副标题同行 */
+    .main-head { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 0.35rem; }
+    .main-head .mt-logo { flex-shrink: 0; }
+    .main-head h1 { font-size: 1.2rem; font-weight: 800; margin: 0; color: #1f2430; }
+    .main-head .sub { font-size: 0.78rem; color: #6b7280; }
+
+    /* 标签页：缩小内边距与字号 */
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        padding: 0.35rem 0.95rem !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: 0.15rem; }
+
+    /* 上传区：并排双卡小标题 */
+    .up-title {
+        display: flex; align-items: baseline; gap: 0.5rem;
+        font-size: 0.82rem; color: #4a5164;
+        margin-bottom: 0.1rem;
+    }
+    .up-title b { font-size: 0.85rem; font-weight: 700; color: #1f2430; }
+    .up-title span { font-size: 0.72rem; color: #9aa1ad; }
+    [data-testid="stFileUploaderDropzone"] {
+        padding: 0.55rem 0.9rem !important;
+        min-height: 3.4rem !important;
+        gap: 0.5rem !important;
+    }
+    [data-testid="stFileUploaderDropzone"] > div:first-child { margin: 0 !important; }
+    [data-testid="stFileUploaderDropzone"] span,
+    [data-testid="stFileUploaderDropzone"] button { font-size: 0.8rem !important; }
+    [data-testid="stFileUploaderDropzone"] small { font-size: 0.72rem !important; }
+    [data-testid="stFileUploaderDropzone"] svg { height: 1.2rem !important; width: 1.2rem !important; }
+
+    /* 已上传文件 chips */
+    .filelist { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.3rem 0 0.1rem; }
+    .fchip {
+        display: inline-flex; align-items: center; gap: 0.45rem;
+        background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+        padding: 0.3rem 0.7rem; font-size: 0.78rem;
+        box-shadow: 0 1px 2px rgba(20,25,60,.05);
+    }
+    .fchip .fi { font-size: 0.95rem; }
+    .fchip .fn { font-weight: 600; color: #333a48; }
+    .fchip .fs { color: #9aa1ad; font-size: 0.72rem; }
+
+    /* 输入区标签 + 徽章 */
+    .mi-label { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+    .mi-label b { font-size: 0.85rem; color: #1f2430; }
+    .badge {
+        font-size: 0.66rem; font-weight: 700; padding: 0.1rem 0.5rem;
+        border-radius: 999px; background: #eef0fe; color: #4a5bd0;
+    }
+
+    /* 紧凑统计条（代替 4 张大卡片） */
+    .statbar { display: flex; gap: 0.55rem; margin: 0.45rem 0 0.4rem; }
+    .stat {
+        flex: 1; background: #fff; border: 1px solid #e5e7eb; border-radius: 9px;
+        padding: 0.4rem 0.85rem; display: flex; align-items: baseline; gap: 0.55rem;
+        box-shadow: 0 1px 2px rgba(20,25,60,.04);
+    }
+    .stat .v { font-size: 1.25rem; font-weight: 800; color: #1f2430; }
+    .stat .k { font-size: 0.75rem; color: #6b7280; }
+    .stat.s-auto .v { color: #1e9e5a; }
+    .stat.s-sugg .v { color: #c07f0a; }
+    .stat.s-hint .v { color: #8a90a0; }
+
+    /* 批量按钮组分隔线 */
+    .col-sep { width: 1px; height: 1.2rem; background: #e3e6ee; margin: 0.35rem auto 0; }
+
+    /* 全局控件字号统一 */
+    .stTextArea textarea, .stTextInput input { font-size: 0.85rem !important; }
+    .stSelectbox [data-baseweb="select"] > div { min-height: 2rem !important; font-size: 0.82rem !important; }
+    .stCheckbox { min-height: 1.9rem !important; }
+    .stCheckbox label p { font-size: 0.82rem !important; }
+
+    /* ── 暗色主题适配（html[data-app-theme] 由注入脚本实时维护）── */
+    /* 侧边栏恢复深色玻璃风 */
+    html[data-app-theme="dark"] [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #191a2e 0%, #151a33 100%);
+        border-right: 1px solid rgba(255,255,255,.08);
+    }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] * { color: #dfe2ee !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(> .stElementContainer .side-label) {
+        border-color: rgba(255,255,255,.09) !important;
+        background: rgba(255,255,255,.035);
+    }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-head .name { color: #fff !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-head .ver { color: rgba(226,229,240,.55) !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-label { color: rgba(226,229,240,.55) !important; }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .side-label::after { background: rgba(255,255,255,.08); }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .lex-chip {
+        background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1);
+    }
+    html[data-app-theme="dark"] [data-testid="stSidebar"] .lex-chip .cnt { color: #9fb0ff !important; }
+    /* 主内容区暗色适配 */
+    html[data-app-theme="dark"] .main-head h1 { color: #e8eaf2; }
+    html[data-app-theme="dark"] .main-head .sub { color: #9aa3b5; }
+    html[data-app-theme="dark"] .up-title { color: #aab2c5; }
+    html[data-app-theme="dark"] .up-title b { color: #e8eaf2; }
+    html[data-app-theme="dark"] .up-title span { color: #8a93a5; }
+    html[data-app-theme="dark"] .mi-label b { color: #e8eaf2; }
+    html[data-app-theme="dark"] .fchip {
+        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.13);
+        box-shadow: none;
+    }
+    html[data-app-theme="dark"] .fchip .fn { color: #dfe3ee; }
+    html[data-app-theme="dark"] .fchip .fs { color: #8a93a5; }
+    html[data-app-theme="dark"] .badge { background: rgba(91,110,232,.25); color: #9fb0ff; }
+    html[data-app-theme="dark"] .stat {
+        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.11);
+        box-shadow: none;
+    }
+    html[data-app-theme="dark"] .stat .v { color: #e8eaf2; }
+    html[data-app-theme="dark"] .stat .k { color: #9aa3b5; }
+    html[data-app-theme="dark"] .stat.s-auto .v { color: #2fbf71; }
+    html[data-app-theme="dark"] .stat.s-sugg .v { color: #e0a13e; }
+    html[data-app-theme="dark"] .stat.s-hint .v { color: #8a93a5; }
+    html[data-app-theme="dark"] .col-sep { background: rgba(255,255,255,.16); }
+    html[data-app-theme="dark"] .step.pending { background: rgba(255,255,255,.09); color: #8a93a5; }
+    html[data-app-theme="dark"] .step-arrow { color: #5a6274; }
+    html[data-app-theme="dark"] .file-card {
+        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12);
+    }
+    html[data-app-theme="dark"] .file-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+    html[data-app-theme="dark"] .file-card .name { color: #dfe3ee; }
+    html[data-app-theme="dark"] .file-card .size { color: #8a93a5; }

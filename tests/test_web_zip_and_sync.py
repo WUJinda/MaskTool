@@ -64,8 +64,12 @@ def _upload(name: str, payload: bytes) -> SimpleNamespace:
 
 
 def _patch_streamlit(monkeypatch, web):
-    monkeypatch.setattr(web, "BATCHES_DIR", Path("batches"))
-    monkeypatch.setattr(web, "_add_history", lambda rec: None)
+    # 拆分后（2026-09-20）：BATCHES_DIR/_add_history 的真实读写方在 ui.service，
+    # 补丁需打在代码实际解析名字的模块上；web.st.* 是全局 streamlit 模块，保持不变
+    from mask_tool.web.ui import service as _svc
+
+    monkeypatch.setattr(_svc, "BATCHES_DIR", Path("batches"))
+    monkeypatch.setattr(_svc, "_add_history", lambda rec: None)
     for fn in ("rerun", "error", "warning", "info", "success", "caption"):
         monkeypatch.setattr(web.st, fn, lambda *a, **k: None, raising=False)
     monkeypatch.setattr(
@@ -135,7 +139,9 @@ class TestSafeUnzip:
     def test_zip_bomb_total_size_rejected(self, monkeypatch, tmp_path):
         """声明解压总大小超过上限 → 拒绝解压（逻辑验证：缩小上限注入）。"""
         web = pytest.importorskip("mask_tool.web.app")
-        monkeypatch.setattr(web, "ZIP_MAX_TOTAL_BYTES", 16)
+        from mask_tool.web.ui import files as _files
+
+        monkeypatch.setattr(_files, "ZIP_MAX_TOTAL_BYTES", 16)
         payload = _make_dir_zip_bytes({"big.bin": b"x" * 32})
         with pytest.raises(ValueError, match="总大小"):
             web._safe_unzip(payload, tmp_path)
@@ -315,13 +321,34 @@ class TestSelectionSync:
         web._apply_grid_selection([0], [], selections)
         assert selections == {0: False, 1: True}  # 第 1 行保持原状
 
-    def test_aggrid_wired_to_selection_changed(self):
-        """接线断言：AgGrid update_mode 必须是 SELECTION_CHANGED
-        （勾选变化即回传并触发 rerun，确认列表才能同步）。"""
+    def test_aggrid_wired_to_value_changed(self):
+        """接线断言：AgGrid update_mode 必须是 VALUE_CHANGED。
+
+        勾选列是布尔单元格编辑器（st-aggrid 1.2.1 + 1.64 实测：
+        configure_selection 的行选择 checkbox 落在被隐藏的 index 列上，
+        SELECTION_CHANGED 永不回传，是“即将脱敏”不同步的根因）；
+        单元格值编辑回传（VALUE_CHANGED）后按“选择”列同步并 rerun。"""
         web = pytest.importorskip("mask_tool.web.app")
         source = inspect.getsource(web._render_masking_tab)
-        assert "GridUpdateMode.SELECTION_CHANGED" in source
+        assert "GridUpdateMode.VALUE_CHANGED" in source
+        assert "GridUpdateMode.SELECTION_CHANGED" not in source
         assert "GridUpdateMode.NO_UPDATE" not in source
         # 同步与确认列表统一走提取后的函数
         assert "_apply_grid_selection(" in source
         assert "_final_selected_indices(" in source
+        # 勾选变化后必须 rerun（“即将脱敏”与计数同步的前提）
+        assert "st.rerun()" in source
+
+    def test_grid_data_dataframe_with_sel_column(self):
+        """VALUE_CHANGED 回传形态：DataFrame 含“选择”列 → 按列值同步。"""
+        pd = pytest.importorskip("pandas")
+        web = pytest.importorskip("mask_tool.web.app")
+        selections = {0: True, 1: True, 2: True}
+        df = pd.DataFrame([
+            {"index": 0, "选择": False},
+            {"index": 1, "选择": True},
+            {"index": 2, "选择": False},
+        ])
+        changed = web._apply_grid_selection([0, 1, 2], df, selections)
+        assert changed is True
+        assert selections == {0: False, 1: True, 2: False}
