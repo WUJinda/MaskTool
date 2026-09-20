@@ -36,6 +36,7 @@ Thumbs.db
 config/local_*.yaml
 # 用户自定义词库，含真实词条，不入库
 config/lexicon.yaml
+config/app_settings.yaml
 config/whitelist_local.yaml
 
 # User data
