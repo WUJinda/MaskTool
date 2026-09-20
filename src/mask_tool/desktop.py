@@ -5,7 +5,7 @@
       ├─ 找空闲端口，subprocess 启动 streamlit（仅本机监听 + headless + 关遥测）
       ├─ 轮询 /_stcore/health 直到就绪
       ├─ pywebview 创建原生窗口（WebView2/EdgeChromium 后端）加载该地址
-      ├─ js_api.save_file：下载兜底通道（fetch → base64 → 原生保存对话框写盘）
+      ├─ js_api.pick_save_folder：原生目录选择（保存位置设置，2026-09-20）
       └─ 窗口关闭 → 结束 streamlit 进程树，退出
 
 用法：
@@ -19,15 +19,16 @@
 
 from __future__ import annotations
 
-import base64
 import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 import webview
 
@@ -151,8 +152,28 @@ def _streamlit_child_main() -> None:
         raise
 
 
+# 进程树终止的一次性守卫：closed 事件回调与 main() finally 双路径都会
+# 调用 _terminate_tree，关窗竞态下几乎同时触发；无守卫时会重复执行
+# taskkill（表现为关软件时 cmd 黑框闪烁两次）。
+# 桌面应用每次运行只管理一个 streamlit 子进程，模块级守卫即可。
+_tree_terminated = False
+_tree_lock = threading.Lock()
+
+
 def _terminate_tree(proc: subprocess.Popen) -> None:
-    """结束 streamlit 进程树（Windows 用 taskkill /T）。"""
+    """结束 streamlit 进程树（Windows 用 taskkill /T，仅执行一次）。
+
+    - 一次性守卫（锁+标志）：closed 事件与 finally 竞态双调用只跑一次；
+    - taskkill 以 CREATE_NO_WINDOW 运行：taskkill 是控制台程序，
+      无控制台的 GUI 父进程（pythonw / windowed exe）下若不加速标志，
+      Windows 会为它新建可见 cmd 窗口（关软件时黑框闪烁的根因）。
+    """
+    global _tree_terminated
+    with _tree_lock:
+        if _tree_terminated:
+            return
+        _tree_terminated = True
+
     if proc.poll() is not None:
         return
     try:
@@ -160,6 +181,10 @@ def _terminate_tree(proc: subprocess.Popen) -> None:
             subprocess.run(
                 ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                 capture_output=True, timeout=10,
+                # 静默化：不为控制台子进程新建可见窗口（修复关软件时
+                # cmd 黑框闪烁）；stdin 一并重定向，彻底避免控制台创建
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdin=subprocess.DEVNULL,
             )
         else:
             proc.terminate()
@@ -169,69 +194,36 @@ def _terminate_tree(proc: subprocess.Popen) -> None:
 
 
 class _DesktopApi:
-    """暴露给页面 JS 的原生能力（下载兜底通道）。"""
+    """暴露给页面 JS 的原生能力（保存位置目录选择）。"""
 
     def __init__(self, window_ref: list):
         # 延迟持有 window 引用（webview 启动后才存在）
         self._window_ref = window_ref
 
-    def save_file(self, filename: str, data_b64: str) -> bool:
-        """接收 base64 文件内容，弹原生保存对话框并写盘。
+    def pick_save_folder(self) -> "Optional[str]":
+        """弹出原生“选择文件夹”对话框，结果直接写入应用设置。
 
-        返回 True=已保存；False=用户取消。
+        Web 端（streamlit 子进程）无法弹原生对话框，此接口借持有窗口
+        的本进程完成；选择结果由 core.app_settings 落盘（与 Web 端
+        读写同一文件），返回选中绝对路径供 iframe 即时回显。
+        返回 None=用户取消或窗口未就绪。
         """
         import webview as _wv
 
+        from mask_tool.core.app_settings import set_save_dir
+
         window = self._window_ref[0] if self._window_ref else None
         if window is None:
-            return False
-        target = window.create_file_dialog(
-            _wv.SAVE_DIALOG, save_filename=filename or "download.bin",
-        )
+            return None
+        try:
+            target = window.create_file_dialog(_wv.FOLDER_DIALOG)
+        except Exception:
+            return None
         if not target:
-            return False
-        path = Path(target if isinstance(target, str) else target[0])
-        path.write_bytes(base64.b64decode(data_b64))
-        return True
-
-
-# 注入页面的下载拦截脚本：
-# st.download_button 生成 <a download href=...>；拦截点击 → fetch → base64 →
-# 调用 pywebview.api.save_file 弹原生保存对话框。若 WebView2 原生下载可用，
-# 原生行为优先生效（本脚本只兜底，不阻断正常导航之外的流程）。
-_DOWNLOAD_SHIM_JS = """
-(function () {
-  if (window.__mtDownloadShimInstalled) return;
-  window.__mtDownloadShimInstalled = true;
-  document.addEventListener('click', function (ev) {
-    var a = ev.target && ev.target.closest ? ev.target.closest('a[download]') : null;
-    if (!a) return;
-    var href = a.href || '';
-    if (!href || href.startsWith('blob:') === false && href.startsWith('/') === false
-        && href.startsWith(location.origin) === false) {
-      return; // 非本站/非 blob 链接不处理
-    }
-    ev.preventDefault();
-    ev.stopPropagation();
-    var name = a.getAttribute('download') || 'download.bin';
-    fetch(href)
-      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
-      .then(function (buf) {
-        var bytes = new Uint8Array(buf);
-        var bin = '';
-        var CHUNK = 0x8000;
-        for (var i = 0; i < bytes.length; i += CHUNK) {
-          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-        }
-        return btoa(bin);
-      })
-      .then(function (b64) { return window.pywebview && pywebview.api.save_file(name, b64); })
-      .catch(function (e) { console.error('mask-tool 下载兜底失败:', e); });
-  }, true);
-})();
-"""
-
-
+            return None
+        path = target if isinstance(target, str) else target[0]
+        set_save_dir(str(path))
+        return str(path)
 def _resolve_icon_path() -> Path:
     """定位 masktool.ico：开发模式在项目根 assets/，frozen 在 _MEIPASS/assets/
     （spec 将其收集到 _internal/assets/），逐候选探测。"""
@@ -324,15 +316,6 @@ def main() -> None:
         text_select=True,
     )
     window_ref.append(window)
-
-    def _on_loaded():
-        # 页面每次（重新）加载后注入下载兜底脚本
-        try:
-            window.evaluate_js(_DOWNLOAD_SHIM_JS)
-        except Exception:
-            pass
-
-    window.events.loaded += _on_loaded
     window.events.closed += lambda: _terminate_tree(proc)
 
     def _on_shown() -> None:
