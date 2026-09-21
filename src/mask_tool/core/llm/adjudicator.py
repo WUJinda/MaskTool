@@ -15,6 +15,7 @@
 调用量 ≈ 去重实体数 / batch_size。50 页文档首次全量复核约 5~15 次调用。
 """
 
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -204,6 +205,10 @@ class LLMAdjudicator:
         self._detect_cache: Dict[str, List[DetectionResult]] = {}
         self._budget_warned = False
         self._error_warned = False
+        # 熔断：连续 N 次调用错误后本次运行禁用（端点挂起时避免逐段
+        # 超时累积拖垮批处理；成功调用归零计数）
+        self._consecutive_errors = 0
+        self._tripped = False
 
     @property
     def stats(self) -> LLMRunStats:
@@ -219,7 +224,7 @@ class LLMAdjudicator:
         失败语义：预算耗尽 / LLM 错误的批次原样返回，仅计数与一次性警告；
         空列表与全 manual 批次零调用。
         """
-        if not results:
+        if not results or self._tripped:
             return results
         self._stats.items_seen += len(results)
 
@@ -271,7 +276,7 @@ class LLMAdjudicator:
             file_path: 来源文件（写入 Location）
             exclude_texts: 规则引擎已检出的实体文本集（去重用）
         """
-        if not text or not text.strip():
+        if not text or not text.strip() or self._tripped:
             return []
         exclude = exclude_texts or set()
 
@@ -299,14 +304,11 @@ class LLMAdjudicator:
                     DETECT_SCHEMA,
                 )
             except LLMError as exc:
-                self._stats.errors += 1
-                if not self._error_warned:
-                    self._error_warned = True
-                    logger.warning(
-                        "LLM 增量检测不可用，本段跳过（仅警告一次）: %s", exc
-                    )
+                if self._handle_call_error("LLM 增量检测不可用，本段跳过", exc):
+                    break  # 已熔断：后续块不再尝试
                 continue
             self._stats.calls += 1
+            self._consecutive_errors = 0
             entities.extend(self._collect_entities(
                 data, chunk, file_path, exclude, seen))
 
@@ -382,13 +384,10 @@ class LLMAdjudicator:
             try:
                 verdicts = self._ask_llm(batch)
             except LLMError as exc:
-                self._stats.errors += 1
-                if not self._error_warned:
-                    self._error_warned = True
-                    logger.warning(
-                        "LLM 复核不可用，相关候选按规则结果处理（仅警告一次）: %s",
-                        exc,
-                    )
+                if self._handle_call_error(
+                    "LLM 复核不可用，相关候选按规则结果处理", exc,
+                ):
+                    return  # 已熔断：后续批次不再尝试
                 continue
             for key, verdict in verdicts.items():
                 self._cache[key] = verdict
@@ -428,6 +427,7 @@ class LLMAdjudicator:
         data = self._client.chat_json(messages, ADJUDICATE_SCHEMA)
         self._stats.calls += 1
         self._stats.elapsed_seconds += time.monotonic() - t0
+        self._consecutive_errors = 0
 
         verdicts: Dict[Tuple[str, str, str], _Verdict] = {}
         raw_items = data.get("items")
@@ -487,6 +487,25 @@ class LLMAdjudicator:
                 r.llm_reason = f"AI 复核维持：{verdict.reason}"
             # keep 不改 confidence/type
 
+    def _handle_call_error(self, label: str, exc: LLMError) -> bool:
+        """统一调用错误处理：计数、一次性警告、连续错误熔断。
+
+        Returns:
+            True 表示已熔断（调用方应停止后续尝试）
+        """
+        self._stats.errors += 1
+        self._consecutive_errors += 1
+        if not self._error_warned:
+            self._error_warned = True
+            logger.warning("%s（仅警告一次）: %s", label, exc)
+        if self._consecutive_errors >= 3 and not self._tripped:
+            self._tripped = True
+            logger.warning(
+                "LLM 连续 %d 次调用失败，本次运行剩余部分降级为纯规则模式",
+                self._consecutive_errors,
+            )
+        return self._tripped
+
     def _warn_budget_once(self) -> None:
         if not self._budget_warned:
             self._budget_warned = True
@@ -497,7 +516,6 @@ class LLMAdjudicator:
 
 
 def _dumps_compact(obj) -> str:
-    import json
     return json.dumps(obj, ensure_ascii=False)
 
 

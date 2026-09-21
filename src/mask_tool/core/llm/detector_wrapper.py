@@ -81,5 +81,11 @@ class LLMEnhancedDetector(Detector):
 
     def __getattr__(self, name):
         """未定义属性委托 base（whitelist / manual_words 等外部访问）。"""
-        # 注意：仅在本实例确实缺少该属性时触发；_base 已在 __init__ 赋值
-        return getattr(self._base, name)
+        # 仅在本实例确实缺少该属性时触发；_base/_adjudicator 未就绪时
+        # （pickle/copy 等特殊路径）抛 AttributeError 而非无限递归
+        if name.startswith("_") and name not in ("_base", "_adjudicator"):
+            raise AttributeError(name)
+        base = self.__dict__.get("_base")
+        if base is None:
+            raise AttributeError(name)
+        return getattr(base, name)

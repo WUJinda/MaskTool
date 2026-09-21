@@ -214,3 +214,33 @@ def test_prompt_carries_schema_and_context():
     assert messages[0]["role"] == "system"
     assert "候选实体列表" in messages[1]["content"]
     assert "某公司" in messages[1]["content"]
+
+
+def test_consecutive_error_circuit_breaker():
+    """连续 3 次调用错误后熔断：后续批次/段落不再发起调用。"""
+    client = FakeClient(error=LLMUnavailableError("端点挂起"))
+    adj = LLMAdjudicator(client, _cfg(batch_size=1))
+    for _ in range(4):
+        r = _result("不同公司%d" % _, 0.95)
+        adj.adjudicate([r])
+    # 4 个独立批次，但第 3 连错后熔断 → 实际只发起 3 次调用（calls 统计
+    # 的是成功调用，故为 0；errors 计 3 而非 4）
+    assert adj.stats.errors == 3
+    assert adj._tripped is True
+
+
+def test_success_resets_error_counter():
+    client = FakeClient()
+    adj = LLMAdjudicator(client, _cfg())
+    # 错 2 次 → 成功 1 次 → 再错 2 次：不熔断（计数被成功归零）
+    client.error = LLMUnavailableError("闪断")
+    adj.adjudicate([_result("A公司", 0.95)])          # 错 1
+    adj.adjudicate([_result("B公司", 0.95)])          # 错 2
+    client.error = None
+    client.responses = [{"items": [{"id": 0, "action": "keep"}]}]
+    adj.adjudicate([_result("C公司", 0.95)])          # 成功，归零
+    client.error = LLMUnavailableError("又断")
+    adj.adjudicate([_result("D公司", 0.95)])          # 错 1
+    adj.adjudicate([_result("E公司", 0.95)])          # 错 2
+    assert adj._tripped is False
+    assert adj.stats.errors == 4

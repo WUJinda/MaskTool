@@ -88,22 +88,13 @@ class OpenAICompatClient:
         Raises:
             LLMUnavailableError: 网络不通 / 超时 / HTTP 5xx / 预算类错误
         """
-        payload = {
+        return self._chat_content({
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
-        }
-        resp = self._request("POST", "/chat/completions", payload)
-        try:
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-        except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise LLMParseError(f"补全响应结构异常: {exc}") from exc
-        if not isinstance(content, str):
-            raise LLMParseError("补全响应 content 非字符串")
-        return content
+        })
 
     def chat_json(self, messages: List[dict], schema: dict) -> dict:
         """结构化补全：返回从输出中提取并 json.loads 成功的 dict。

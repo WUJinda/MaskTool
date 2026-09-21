@@ -181,11 +181,12 @@ def _handle_save_llm(ev: Dict) -> None:
     if not model:
         _flash("err", "请填写模型名称")
         return
-    saved = get_llm_settings()
+    # api_key 空串=用户未输入新值：保留已存密钥（避免改动模型名时
+    # 顺带清掉密钥；前端 password 框刷新后总是空的）。显式清除留待
+    # 需要时再加独立动作
     updates = {
         "base_url": base_url, "model": model, "role": role,
-        # 前端仅在用户输入了新值时回传 api_key；空串且明确清空标志才清除
-        "api_key": api_key if api_key else "",
+        "api_key": api_key if api_key else str(get_llm_settings().get("api_key", "") or ""),
     }
     if set_llm_settings(updates):
         _flash("ok", f"✅ 模型配置已保存：{model or base_url}")
