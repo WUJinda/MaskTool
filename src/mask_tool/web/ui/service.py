@@ -28,6 +28,42 @@ from .state import _dedup_results
 # 批次目录：脱敏输出与 mapping.json 的持久化位置（~/.mask-tool/batches/<batch_id>/）
 BATCHES_DIR = Path.home() / ".mask-tool" / "batches"
 
+def _stash_llm_run_summary(pipeline, cfg: MaskConfig) -> None:
+    """AI 增强运行摘要（P3 反馈机制）：进程结束时提取 stats 供结果页横幅。
+
+    摘要含 role/enabled/调用统计/首错（友好化文本）；检测或脱敏结束时
+    调 _snapshot_llm_summary 提取。llm 未启用时清空旧摘要（零噪声）。
+    """
+    if cfg.llm.enabled and pipeline.llm_stats is not None:
+        st.session_state["_llm_pipeline_ref"] = pipeline  # 结束时读最终统计
+    else:
+        st.session_state.pop("_llm_run_summary", None)
+        st.session_state.pop("_llm_pipeline_ref", None)
+
+
+def _snapshot_llm_summary() -> None:
+    """流程结束时把 pipeline 的最终 LLM 统计固化为摘要 dict（并回写
+    侧栏连通徽标 llm_health：真实调用结果比探活更准）。"""
+    pipeline = st.session_state.pop("_llm_pipeline_ref", None)
+    if pipeline is None or pipeline.llm_stats is None:
+        st.session_state.pop("_llm_run_summary", None)
+        return
+    s = pipeline.llm_stats
+    ok = s.calls > 0 and not (s.errors and s.calls == 0)
+    st.session_state["_llm_run_summary"] = {
+        **s.to_dict(),
+        "role": getattr(pipeline.detector, "role", "adjudicator"),
+        "ok": s.calls > 0,
+        "tripped": getattr(pipeline.detector, "_adjudicator", None) is not None
+                   and getattr(pipeline.detector._adjudicator, "_tripped", False),
+    }
+    # 侧栏徽标：有成功调用=绿；有错误=红+首错；全缓存命中也算绿
+    if s.calls > 0:
+        st.session_state["llm_health"] = {"ok": True, "msg": f"模型 {s.model}"}
+    elif s.first_error or s.errors:
+        st.session_state["llm_health"] = {"ok": False, "msg": s.first_error[:60]}
+
+
 def _load_config(mode: str, config_path: Optional[str] = None) -> MaskConfig:
     """加载配置（R1-B6：与 CLI 共用 core/config_loader 四级回退链，
     不再静默回退到空词库）。
@@ -198,6 +234,7 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
         cfg, manual_words=manual_words,
         auto_detect_enabled=not manual_only,
     )
+    _stash_llm_run_summary(pipeline, cfg)
 
     # R1-B5：清理旧检测轮的上传临时目录（用户只检测不点脱敏时不再永久残留）
     old_tmp = st.session_state.get("tmp_dir")
@@ -293,6 +330,7 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
     st.session_state["zip_tree_root"] = zip_tree_root
     st.session_state["zip_blocked_files"] = zip_blocked
 
+    _snapshot_llm_summary()  # P3：固化 AI 运行摘要（结果页横幅/侧栏徽标）
     st.success(f"✅ 检测完成！共发现 **{len(all_results)}** 项敏感信息")
     st.rerun()
 
@@ -338,6 +376,7 @@ def _run_masking(
         cfg, batch_id=batch_id, manual_words=manual_words,
         auto_detect_enabled=not manual_only,
     )
+    _stash_llm_run_summary(pipeline, cfg)
 
     if irreversible:
         from mask_tool.core.masker import Masker
@@ -572,6 +611,7 @@ def _run_masking(
         shutil.rmtree(tmp_dir, ignore_errors=True)
         for key in ("tmp_dir", "saved_paths"):
             st.session_state.pop(key, None)
+        _snapshot_llm_summary()  # P3：脱敏流程结束固化 AI 摘要
 
 
 def _save_learned_words(learned: dict, config: MaskConfig):

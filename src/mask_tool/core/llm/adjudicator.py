@@ -37,6 +37,34 @@ _RAISE_CAP = 0.05
 # 合法类别枚举（与 DetectionType 对齐；文本形式便于 schema 约束）
 _VALID_TYPES = {t.value for t in DetectionType}
 
+# 类型别名归一化：端点"假支持"json_schema（接受参数但不强制）时，
+# 模型常输出中文标签或大小写漂移；统一映射回英文枚举
+_TYPE_ALIASES = {
+    "公司": "company", "公司/机构": "company", "机构": "company",
+    "企业": "company", "公司名": "company", "机构名": "company",
+    "政府": "government", "政府机构": "government", "监管部门": "government",
+    "人名": "person", "姓名": "person", "人物": "person", "个人": "person",
+    "项目": "project", "项目名": "project", "项目名称": "project",
+    "标的": "subject", "标的物": "subject", "资产": "subject",
+    "地名": "location", "地点": "location", "位置": "location", "地址": "location",
+    "金额": "amount", "数额": "amount", "价格": "amount",
+    "自定义": "custom", "编号": "custom", "证件号": "custom",
+    "联系方式": "custom", "电话": "custom", "手机号": "custom",
+    "手机": "custom", "邮箱": "custom", "email": "custom",
+    "身份证": "custom", "身份证号": "custom", "卡号": "custom",
+}
+
+
+def _normalize_type(value) -> Optional[str]:
+    """把模型输出的类别标签归一化为合法枚举值；无法识别返回 None。"""
+    if not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    if v in _VALID_TYPES:
+        return v
+    return _TYPE_ALIASES.get(v.strip()) or _TYPE_ALIASES.get(
+        v.split("/")[0].strip())
+
 # 复核结果结构化输出契约（纯 dict JSON Schema，不引 pydantic）
 ADJUDICATE_SCHEMA = {
     "type": "object",
@@ -145,6 +173,7 @@ class LLMRunStats:
     dropped: int = 0            # 应用 drop 的次数
     detected: int = 0           # P2：AI 增量检出实体数（source="llm"）
     errors: int = 0             # 调用/解析失败批次数
+    first_error: str = ""       # 首条完整错误消息（横幅展示用，空=无错误）
     elapsed_seconds: float = 0.0
 
     def to_dict(self) -> dict:
@@ -159,6 +188,7 @@ class LLMRunStats:
             "dropped": self.dropped,
             "detected": self.detected,
             "errors": self.errors,
+            "first_error": self.first_error,
             "elapsed_seconds": round(self.elapsed_seconds, 3),
         }
 
@@ -335,17 +365,21 @@ class LLMAdjudicator:
     ) -> List[DetectionResult]:
         """校验回包并构造 DetectionResult：幻觉防护 + 枚举校验 + 封顶。"""
         results: List[DetectionResult] = []
+        # 结构漂移兼容：标准 {"entities":[...]} 或顶层数组包装
         raw = data.get("entities")
+        if not isinstance(raw, list):
+            wrapped = data.get("__root_array__")
+            raw = wrapped if isinstance(wrapped, list) else None
         if not isinstance(raw, list):
             return results
         for item in raw:
             if not isinstance(item, dict):
                 continue
             t = item.get("text")
-            type_value = item.get("type")
             if not isinstance(t, str) or not t.strip():
                 continue
-            if type_value not in _VALID_TYPES:
+            type_value = _normalize_type(item.get("type"))
+            if type_value is None:
                 continue
             t = t.strip()
             # 幻觉防护：必须在原文块中逐字出现（masker 按精确文本替换）
@@ -430,7 +464,11 @@ class LLMAdjudicator:
         self._consecutive_errors = 0
 
         verdicts: Dict[Tuple[str, str, str], _Verdict] = {}
+        # 结构漂移兼容：标准 {"items":[...]} 或顶层数组包装（__root_array__）
         raw_items = data.get("items")
+        if not isinstance(raw_items, list):
+            wrapped = data.get("__root_array__")
+            raw_items = wrapped if isinstance(wrapped, list) else None
         if not isinstance(raw_items, list):
             return verdicts
         by_id = {i: key for i, (key, _) in indexed}
@@ -440,7 +478,8 @@ class LLMAdjudicator:
             item_id = item.get("id")
             if not isinstance(item_id, int) or item_id not in by_id:
                 continue
-            action = item.get("action")
+            # 字段别名：部分模型用 decision 而非 action（prompt 档漂移）
+            action = item.get("action") or item.get("decision")
             if action not in ("keep", "drop", "adjust"):
                 continue
             verdict = _Verdict(action=action, reason=str(item.get("reason", "")))
@@ -452,8 +491,8 @@ class LLMAdjudicator:
                 if not (0.0 <= conf <= 1.0):
                     continue
                 verdict.confidence = conf
-                type_value = item.get("type")
-                if type_value is not None and type_value in _VALID_TYPES:
+                type_value = _normalize_type(item.get("type"))
+                if type_value is not None:
                     verdict.type_value = type_value
             verdicts[by_id[item_id]] = verdict
         return verdicts
@@ -495,6 +534,8 @@ class LLMAdjudicator:
         """
         self._stats.errors += 1
         self._consecutive_errors += 1
+        if not self._stats.first_error:
+            self._stats.first_error = friendly_error(str(exc))
         if not self._error_warned:
             self._error_warned = True
             logger.warning("%s（仅警告一次）: %s", label, exc)
@@ -551,3 +592,24 @@ def _split_chunks(text: str, limit: int) -> List[str]:
             chunks.append(text[start:start + limit])
             start += limit
     return chunks
+
+
+def friendly_error(msg: str) -> str:
+    """把 LLM 调用错误翻译为用户可自助排查的提示（未命中时原样截断）。"""
+    text = str(msg or "")
+    low = text.lower()
+    if "404" in text or "not found" in low:
+        return ("HTTP 404——端点路径不存在。请检查 Base URL 是否为 OpenAI 兼容端点"
+                "（以 /v1 或 /v4 等版本段结尾，如智谱 https://open.bigmodel.cn/api/paas/v4；"
+                "Anthropic 专用地址 /api/anthropic 不适用）")
+    if "401" in text or "403" in text or "unauthorized" in low or "forbidden" in low:
+        return "HTTP 401/403——API Key 无效或无权限，请检查密钥"
+    if "429" in text:
+        return "HTTP 429——触发服务端限流，稍后重试或调小 batch_size"
+    if "timeout" in low or "timed out" in low:
+        return "请求超时——端点不可达或响应过慢，检查地址/网络/超时设置"
+    if "connection" in low or "refused" in low or "unreachable" in low:
+        return "连接失败——端点不可达，检查地址拼写/网络/防火墙"
+    if "模型不存在" in text:
+        return "端点可达但模型名不存在，请核对模型名称"
+    return text[:120] if text else "未知错误"

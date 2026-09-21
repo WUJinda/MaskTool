@@ -244,3 +244,28 @@ def test_success_resets_error_counter():
     adj.adjudicate([_result("E公司", 0.95)])          # 错 2
     assert adj._tripped is False
     assert adj.stats.errors == 4
+
+
+def test_root_array_and_decision_alias():
+    """结构漂移兼容：顶层数组包装 + decision 字段别名。"""
+    from mask_tool.core.llm.adjudicator import LLMAdjudicator  # noqa: F401
+    from tests.test_llm_client import FakeSession  # 复用假会话
+    from mask_tool.core.llm.client import OpenAICompatClient
+    from mask_tool.models.config import LLMConfig
+    from mask_tool.models.detection import DetectionResult, DetectionType, Location
+
+    session = FakeSession(scripted=[])  # scripted 空时走路由逻辑返回默认
+    # 直接构造返回数组输出的脚本
+    session.scripted = [type("R", (), {
+        "status_code": 200,
+        "json": lambda self: {"choices": [{"message": {"content":
+            '[{"id": 0, "decision": "drop", "reason": "通用词"}]'}}]},
+    })()]
+    client = OpenAICompatClient("http://x/v1", "m", session=session)
+    adj = LLMAdjudicator(client, LLMConfig(enabled=True))
+    r = DetectionResult(text="项目", text_type=DetectionType.CUSTOM,
+                        source="dictionary", confidence=0.95,
+                        location=Location(file="a"), context="...项目...")
+    adj.adjudicate([r])
+    assert r.confidence == 0.40            # decision=drop 生效
+    assert "通用词" in r.llm_reason

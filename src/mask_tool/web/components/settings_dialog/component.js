@@ -2,7 +2,8 @@
  *
  * ── 组件契约（与 mask_tool/web/ui/settings_dialog.py 对应）──────────────
  * Python → JS（每轮 render 经 component.data 下发 payload）：
- *   { lexicon: [{cat,label,icon,words[]}], theme: 'auto|light|dark',
+ *   { lexicon: [{cat,label,icon,words[]}], whitelist: [word, ...],
+ *     theme: 'auto|light|dark',
  *     save_dir, save_dir_default, save_dir_explicit: bool,
  *     llm: {base_url, model, role, api_key_set: bool},
  *     flash: {level:'ok|err', text} | null }
@@ -11,6 +12,7 @@
  *   {action:'set_theme', theme} | {action:'save_dir', path}
  *   | {action:'reset_dir'} | {action:'open_folder'}
  *   | {action:'create_category', name} | {action:'add_words', cat, words[]}
+ *   | {action:'add_whitelist', words[]} | {action:'remove_whitelist', word}   ← R9 白名单
  *   | {action:'export_csv'} | {action:'import_csv', text}
  *   | {action:'save_llm', base_url, model, api_key, role}   ← P3 模型配置
  *   | {action:'test_llm', base_url, model, api_key}
@@ -227,6 +229,14 @@ html[data-app-theme="dark"] #mt-settings-root .mt-lex-cat summary .cnt { color: 
 }
 html[data-app-theme="dark"] #mt-settings-root .mt-word-tag { background: rgba(91,110,232,.16); color: #a9b6ff; border-color: rgba(91,110,232,.3); }
 #mt-settings-root .mt-lex-empty { font-size: .76rem; color: rgba(43,48,64,.5); align-self: center; }
+/* R9 白名单：tag 内嵌移除按钮 */
+#mt-settings-root .mt-wl-tag { display: inline-flex; align-items: center; gap: .3rem; }
+#mt-settings-root .mt-wl-del {
+  border: none; background: transparent; cursor: pointer; padding: 0 .05rem;
+  font-size: .7rem; line-height: 1; color: rgba(43,48,64,.4); border-radius: 4px;
+}
+#mt-settings-root .mt-wl-del:hover { color: #e5484d; background: rgba(229,72,77,.12); }
+html[data-app-theme="dark"] #mt-settings-root .mt-wl-del { color: rgba(255,255,255,.38); }
 html[data-app-theme="dark"] #mt-settings-root .mt-lex-empty { color: #8a93a5; }
 #mt-settings-root .mt-csv-note { font-size: .73rem; color: rgba(43,48,64,.55); line-height: 1.6; margin-top: .8rem; }
 html[data-app-theme="dark"] #mt-settings-root .mt-csv-note { color: #8a93a5; }
@@ -348,6 +358,14 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
               <input type="file" id="mt-csv-file" accept=".csv" style="display:none">
             </div>
             <div id="mt-lex-list"></div>
+            <div class="mt-set-card" style="margin-top:.9rem">
+              <div class="mt-card-title" style="margin-bottom:.4rem">🚫 白名单
+                <span class="mt-lex-count" id="mt-wl-count"></span>
+                <button class="mt-mini-btn" id="mt-add-wl" style="margin-left:auto">＋ 添加白名单词</button>
+              </div>
+              <div class="mt-card-sub">白名单内的词不会被检测识别（适用于自动检测的常见误报）；检测页勾选「对未勾选的敏感词进行永久排除」也会写入这里。点击词条右侧 ✕ 移除。</div>
+              <div class="mt-lex-words" id="mt-wl-list" style="padding:.35rem 0 .1rem"></div>
+            </div>
             <div class="mt-csv-note">
               💡 CSV 格式为两列 <code>类别,词条</code>（UTF-8 编码，首行为表头）。导出后在离线机器上通过「导入 CSV」合并入词库，
               无需重新录入；导入时自动映射中文分类，重复词条自动跳过。导出文件保存到当前「保存路径」文件夹。
@@ -358,10 +376,10 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
             <div class="mt-pane-title">模型配置</div>
             <div class="mt-set-card">
               <div class="mt-card-title">💻 AI 增强检测（内网大模型）</div>
-              <div class="mt-card-sub">接入 OpenAI 兼容内网端点（Ollama / vLLM / Xinference / One-API 网关）。保存后在侧栏「AI 增强检测」开关启用；仅智能/激进模式生效。</div>
+              <div class="mt-card-sub">必须为 <b>OpenAI 兼容端点</b>（以 /v1、/v4 等版本段结尾）。示例：http://localhost:11434/v1（Ollama）· http://内网IP:8000/v1（vLLM）· https://open.bigmodel.cn/api/paas/v4（智谱）。⚠️ Anthropic 专用地址（/api/anthropic）不适用。保存后在侧栏「AI 增强检测」开关启用；仅智能/激进模式生效。</div>
               <div class="mt-sub-field">
                 <label>服务地址（Base URL）</label>
-                <input class="ctrl" id="mt-llm-url" placeholder="如 http://192.168.1.10:11434/v1">
+                <input class="ctrl" id="mt-llm-url" placeholder="http://localhost:11434/v1 · http://内网IP:8000/v1 · https://open.bigmodel.cn/api/paas/v4">
               </div>
               <div class="mt-sub-field">
                 <label>模型名称</label>
@@ -422,6 +440,20 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
         <div class="mt-sub-actions">
           <button class="mt-ghost-btn" id="mt-cancel-word">取消</button>
           <button class="mt-ok-btn" id="mt-confirm-word">添加</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-sub-overlay" id="mt-sub-wl">
+      <div class="mt-sub-dialog" role="dialog" aria-label="添加白名单词">
+        <div class="mt-sub-title">🚫 添加白名单词</div>
+        <div class="mt-sub-field">
+          <label>词条（多条用逗号分隔）</label>
+          <input class="ctrl" id="mt-new-wl" placeholder="如：有限公司，某某项目，张三">
+        </div>
+        <div class="mt-sub-actions">
+          <button class="mt-ghost-btn" id="mt-cancel-wl">取消</button>
+          <button class="mt-ok-btn" id="mt-confirm-wl">添加</button>
         </div>
       </div>
     </div>
@@ -490,15 +522,18 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
   function openSub(which) {
     closeSub();
     UI.sub = which;
-    q(which === 'cat' ? 'mt-sub-cat' : 'mt-sub-word').classList.add('open');
-    var first = q(which === 'cat' ? 'mt-new-cat' : 'mt-new-word');
+    var panelMap = { cat: 'mt-sub-cat', word: 'mt-sub-word', wl: 'mt-sub-wl' };
+    var inputMap = { cat: 'mt-new-cat', word: 'mt-new-word', wl: 'mt-new-wl' };
+    q(panelMap[which]).classList.add('open');
+    var first = q(inputMap[which]);
     if (first) setTimeout(function () { first.focus(); }, 30);
     if (which === 'word') buildWordCatOptions();
   }
   function closeSub() {
     UI.sub = null;
-    q('mt-sub-cat').classList.remove('open');
-    q('mt-sub-word').classList.remove('open');
+    ['mt-sub-cat', 'mt-sub-word', 'mt-sub-wl'].forEach(function (id) {
+      q(id).classList.remove('open');
+    });
   }
 
   function bindOnce(id, ev, fn) {
@@ -630,6 +665,41 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
   bindOnce('mt-new-word', 'keydown', function (e) { if (e.key === 'Enter') confirmAddWord(); });
 
   bindOnce('mt-export-csv', 'click', function () { sendEvent({ action: 'export_csv' }); toast('正在导出词库…'); });
+
+  /* ── 白名单（R9）── */
+  function renderWhitelist() {
+    var wl = ARGS.whitelist || [];
+    var c = q('mt-wl-count');
+    if (c) c.textContent = wl.length ? '共 ' + wl.length + ' 条' : '';
+    var list = q('mt-wl-list');
+    if (!list) return;
+    list.innerHTML = wl.length
+      ? wl.map(function (w) {
+          return '<span class="mt-word-tag mt-wl-tag">' + esc(w) +
+            '<button class="mt-wl-del" data-w="' + esc(w) + '" title="从白名单移除">✕</button></span>';
+        }).join('')
+      : '<span class="mt-lex-empty">暂无白名单词条</span>';
+  }
+  function confirmAddWl() {
+    var raw = q('mt-new-wl').value.trim();
+    if (!raw) { toast('请输入词条', true); return; }
+    var words = raw.replace(/，/g, ',').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    q('mt-new-wl').value = '';
+    closeSub();
+    sendEvent({ action: 'add_whitelist', words: words });
+    toast('正在添加 ' + words.length + ' 条白名单…');
+  }
+  bindOnce('mt-add-wl', 'click', function () { openSub('wl'); });
+  bindOnce('mt-confirm-wl', 'click', confirmAddWl);
+  bindOnce('mt-cancel-wl', 'click', closeSub);
+  bindOnce('mt-new-wl', 'keydown', function (e) { if (e.key === 'Enter') confirmAddWl(); });
+  /* tag 为动态渲染，删除走事件委托 */
+  root.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('.mt-wl-del') : null;
+    if (!t) return;
+    sendEvent({ action: 'remove_whitelist', word: t.getAttribute('data-w') });
+    toast('正在移除「' + t.getAttribute('data-w') + '」…');
+  });
   bindOnce('mt-import-csv', 'click', function () { q('mt-csv-file').click(); });
   bindOnce('mt-csv-file', 'change', function () {
     var f = this.files && this.files[0];
@@ -681,6 +751,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
   B.onData = function (args) {
     ARGS = args || {};
     renderLexicon();
+    renderWhitelist();
     var theme = ARGS.theme || 'auto';
     doc.querySelectorAll('#mt-theme-seg button').forEach(function (b) {
       b.classList.toggle('active', b.dataset.theme === theme);
@@ -726,6 +797,9 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
   watchSettingsButton();
   if (UI.tab && UI.tab !== 'basic') switchPane(UI.tab);
   if (UI.open) q('mt-overlay').classList.add('open');
-  if (UI.sub === 'cat' || UI.sub === 'word') q(UI.sub === 'cat' ? 'mt-sub-cat' : 'mt-sub-word').classList.add('open');
+  if (UI.sub === 'cat' || UI.sub === 'word' || UI.sub === 'wl') {
+    var _pm = { cat: 'mt-sub-cat', word: 'mt-sub-word', wl: 'mt-sub-wl' };
+    q(_pm[UI.sub]).classList.add('open');
+  }
   B.onData(ARGS);
 }

@@ -49,6 +49,7 @@ TASK_STATE_KEYS = [
     "tmp_dir", "saved_paths", "mask_result", "restore_result",
     "filter_type", "filter_status", "filter_source", "filter_file",
     "search_text", "batch_name_input", "pending_batch_id",
+    "exclude_unchecked_to_whitelist", "whitelist_applied",
     "mask_dialog_token",
     "task_kind", "zip_tree_root", "zip_blocked_files",
     "dir_zip_upload", "restore_zip_upload",

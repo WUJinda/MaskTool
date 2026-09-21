@@ -21,6 +21,7 @@ from ..labels import (
     SUPPORTED_MASK_EXTS,
     TYPE_LABELS,
 )
+from ..lexicon_io import _merge_words_into_whitelist
 from ..service import _run_detection, _run_masking
 from ..state import (
     _apply_grid_selection,
@@ -185,7 +186,6 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
                   "检测与脱敏只处理左侧手动指定的词；适合自动检测误报多、"
                   "只想针对性脱敏的场景"),
         )
-        st.caption("💡 自动检测误报的词（如普通词被识为人名），可加入 config/whitelist.yaml 的 whitelist 永久排除")
 
     if st.button("🔍 开始检测", type="primary", width="stretch"):
         with st.spinner("正在分析，检测敏感信息..."):
@@ -254,6 +254,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     st.markdown("---")
 
     # 初始化选择状态
+    _render_llm_banner()
+
     if "user_selections" not in st.session_state:
         # 默认：自动脱敏和建议脱敏的项都勾选
         st.session_state["user_selections"] = {
@@ -492,6 +494,39 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             if changed:
                 st.rerun()
 
+    # R9：未勾选项一键永久排除——勾选瞬间把当前所有未勾选的检测词
+    # 写入白名单（去重），点「重新检测」后不再被识别；白名单可在
+    # 「设置 → 词库管理 → 白名单」维护。替代原 whitelist.yaml 手工提示。
+    unchecked_words = list(dict.fromkeys(
+        r.text for i, r in enumerate(all_results)
+        if not st.session_state["user_selections"].get(i, False)
+    ))
+    exclude_unchecked = st.checkbox(
+        "对未勾选的敏感词进行永久排除",
+        value=False,
+        disabled=not unchecked_words,
+        key="exclude_unchecked_to_whitelist",
+        help=(
+            f"勾选后立即把当前未勾选的 {len(unchecked_words)} 个词加入白名单"
+            "（下次检测不再识别）；点击「🔄 重新检测」后生效。"
+            "白名单可在「设置 → 词库管理 → 白名单」中维护"
+        ),
+    )
+    if not exclude_unchecked:
+        # 取消勾选可重新快照：再次勾选时按当时的未勾选集合重新写入
+        st.session_state.pop("whitelist_applied", None)
+    elif not st.session_state.get("whitelist_applied"):
+        st.session_state["whitelist_applied"] = True  # 一次性写入，跨 rerun 不重复
+        added, dup = _merge_words_into_whitelist(unchecked_words)
+        if added:
+            st.toast(
+                f"✅ 已将 {added} 个未勾选词加入白名单（点击「重新检测」后生效）"
+            )
+        elif dup:
+            st.toast("这些词已全部在白名单中，无需重复添加")
+        else:
+            st.toast("⚠️ 白名单写入失败，请检查 config/whitelist.yaml 权限")
+
     # ── Step 4: 执行脱敏 ──（步骤条已固定在顶部，此处不再重复）
 
     # 待确认的项：不在主页展示“即将脱敏”预览（R7），改为点击“执行脱敏”
@@ -550,6 +585,45 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         )
     elif not final_selected:
         st.caption("⚠️ 请在上方表格至少勾选一项后再执行脱敏")
+
+
+def _render_llm_banner():
+    """P3 反馈机制：AI 增强运行状态横幅（成功/失败/熔断三态）。
+
+    数据源 ``_llm_run_summary``（检测/脱敏结束时由 service 固化）；
+    未启用 AI 或无摘要时不渲染（零噪声）。失败态展示友好化原因，
+    用户可自助排查端点配置。
+    """
+    s = st.session_state.get("_llm_run_summary")
+    if not s:
+        return
+    role = s.get("role", "adjudicator")
+    if s.get("ok"):
+        parts = []
+        if role in ("adjudicator", "both"):
+            parts.append(
+                f"复核 {s.get('items_adjudicated', 0)} 项"
+                f"（剔除 {s.get('dropped', 0)} · 修正 {s.get('adjusted', 0)}）"
+            )
+        if role in ("detector", "both"):
+            parts.append(f"检出 {s.get('detected', 0)} 个新实体")
+        stat = (
+            f"模型 {s.get('model', '')} · {s.get('calls', 0)} 次调用"
+            f" · {s.get('elapsed_seconds', 0):.1f}s"
+        )
+        hits = s.get("cache_hits", 0)
+        if hits:
+            stat += f" · 缓存命中 {hits} 次"
+        st.info("✨ **AI 增强已生效**　" + " · ".join(parts) + "\n\n" + stat)
+    else:
+        reason = s.get("first_error") or "未知原因"
+        tripped = "（连续 3 次失败已自动停用本次运行的 AI 增强）" if s.get("tripped") else ""
+        st.warning(
+            f"⚠️ **AI 增强未生效**，本次已按纯规则完成检测{tripped}\n\n"
+            f"原因：{reason}\n\n"
+            f"排查：⚙️ 设置 → 模型配置 → 测试连接；确认 Base URL 为 "
+            f"OpenAI 兼容端点、API Key 有效、模型名正确"
+        )
 
 
 # ──────────────────────────────────────────────

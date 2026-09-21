@@ -166,3 +166,18 @@ def test_prompt_uses_detect_schema():
     assert schema == DETECT_SCHEMA
     assert messages[0]["role"] == "system"
     assert "逐字出现" in messages[0]["content"]
+
+
+def test_detect_new_chinese_type_aliases():
+    """端点假支持 json_schema 时模型输出中文类别标签 → 归一化后接受。"""
+    client = FakeClient([{"entities": [
+        {"text": "王总", "type": "人名", "confidence": 0.9},
+        {"text": "远景产业园", "type": "项目名"},
+        {"text": "神秘词", "type": "无法识别的类别"},   # 未知名 → 丢弃
+    ]}])
+    out = LLMAdjudicator(client, _cfg()).detect_new(
+        "王总负责远景产业园项目，这个词是神秘词。")
+    types = {r.text: r.text_type for r in out}
+    assert types["王总"] == DetectionType.PERSON
+    assert types["远景产业园"] == DetectionType.PROJECT
+    assert "神秘词" not in types

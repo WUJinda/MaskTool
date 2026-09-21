@@ -233,3 +233,20 @@ def test_api_key_from_env(monkeypatch):
     # 密钥进入 Authorization 头（FakeSession.request 忽略 headers，
     # 此处通过行为断言构造不报错即可；头校验在下方直接检查）
     assert c._api_key == "sk-test"
+
+
+# ---------------------------------------------------------------------------
+# P3：顶层数组包装（结构漂移容错）
+# ---------------------------------------------------------------------------
+
+def test_root_array_wrapped():
+    """模型输出顶层数组（prompt 档常见漂移）→ 包装为 __root_array__。"""
+    s = FakeSession(scripted=[
+        _ok_completion('[{"id": 0, "decision": "keep", "reason": "ok"}]'),
+        _ok_completion('说明：```json\n[{"id": 0}]\n```'),   # 围栏+数组
+    ])
+    c = _client(s)
+    out = c.chat_json(MSGS, SCHEMA)
+    assert out == {"__root_array__": [{"id": 0, "decision": "keep", "reason": "ok"}]}
+    out2 = c.chat_json(MSGS, SCHEMA)
+    assert out2 == {"__root_array__": [{"id": 0}]}

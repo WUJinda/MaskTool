@@ -21,8 +21,11 @@ from .lexicon_io import (
     _create_lexicon_category,
     _export_lexicon_csv_to_file,
     _get_lexicon_data,
+    _get_whitelist,
     _import_lexicon_csv_text,
     _merge_words_into_lexicon,
+    _merge_words_into_whitelist,
+    _remove_whitelist_words,
 )
 
 # ──────────────────────────────────────────────
@@ -83,6 +86,7 @@ def _render_settings_component() -> None:
     llm = get_llm_settings()
     payload = {
         "lexicon": _lexicon_payload(),
+        "whitelist": _get_whitelist(),
         "theme": get_theme(),
         "save_dir": get_save_dir(),
         "save_dir_default": default_save_dir(),
@@ -154,6 +158,24 @@ def _handle_settings_event(ev: Dict) -> None:
             if dup:
                 parts.append(f"跳过重复 {dup} 条")
             _flash("ok" if added else "err", "，".join(parts))
+        st.rerun()
+    elif action == "add_whitelist":
+        # R9：白名单维护（检测排除词，config/whitelist.yaml）
+        words = [str(w).strip() for w in ev.get("words", []) if str(w).strip()]
+        if words:
+            added, dup = _merge_words_into_whitelist(words)
+            parts = [f"已添加 {added} 条白名单"]
+            if dup:
+                parts.append(f"跳过重复 {dup} 条")
+            _flash("ok" if added else "err", "，".join(parts))
+        st.rerun()
+    elif action == "remove_whitelist":
+        removed = _remove_whitelist_words([str(ev.get("word", ""))])
+        _flash(
+            "ok" if removed else "err",
+            f"✅ 已从白名单移除「{str(ev.get('word', ''))}」" if removed
+            else "词条不在白名单中",
+        )
         st.rerun()
     elif action == "export_csv":
         _flash("ok", _export_lexicon_csv_to_file())

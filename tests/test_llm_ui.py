@@ -229,3 +229,43 @@ class TestSidebarAI:
         boxes = [c for c in at.sidebar.checkbox
                  if "AI 增强检测" in (c.label or "")]
         assert boxes, "侧栏 AI 增强检测开关缺失"
+
+
+# ---------------------------------------------------------------------------
+# P3 反馈机制：first_error / 友好化 / 摘要
+# ---------------------------------------------------------------------------
+
+def test_friendly_error_mapping():
+    from mask_tool.core.llm.adjudicator import friendly_error
+
+    assert "OpenAI 兼容端点" in friendly_error("HTTP 404: not found")
+    assert "API Key" in friendly_error("HTTP 401: unauthorized")
+    assert "限流" in friendly_error("HTTP 429")
+    assert "超时" in friendly_error("Request timed out")
+    assert "连接失败" in friendly_error("Connection refused")
+    assert "模型名" in friendly_error("端点可达但模型不存在: m")
+    assert friendly_error("") .startswith("未知")
+    assert friendly_error("某奇怪错误XYZ") == "某奇怪错误XYZ"
+
+
+def test_first_error_recorded_once():
+    from mask_tool.core.llm.adjudicator import LLMAdjudicator
+    from mask_tool.core.llm.exceptions import LLMUnavailableError
+
+    class ErrClient:
+        def chat_json(self, m, s):
+            raise LLMUnavailableError("HTTP 404: not found")
+
+    adj = LLMAdjudicator(ErrClient(), LLMConfig(
+        enabled=True, base_url="http://x/v1", model="m"))
+    from mask_tool.models.detection import DetectionResult, DetectionType, Location
+    r = DetectionResult(text="甲", text_type=DetectionType.COMPANY, source="dictionary",
+                        confidence=0.95, location=Location(file="a"))
+    adj.adjudicate([r])
+    adj.adjudicate([DetectionResult(text="乙", text_type=DetectionType.COMPANY,
+                                    source="dictionary", confidence=0.95,
+                                    location=Location(file="a"))])
+    assert adj.stats.errors == 2
+    assert "OpenAI 兼容端点" in adj.stats.first_error   # 友好化 + 只记首条
+    d = adj.stats.to_dict()
+    assert "first_error" in d

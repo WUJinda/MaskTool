@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
-"""词库 IO：定位/初始化用户词库、合并词条、类别创建、CSV 导入导出。"""
+"""词库 IO：定位/初始化用户词库、合并词条、类别创建、CSV 导入导出。
+
+白名单 IO（R9）：检测排除词（config/whitelist.yaml）的读写同在本模块，
+与词库共用锚点链定位策略。
+"""
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -11,6 +16,9 @@ import yaml
 from mask_tool.models.detection import DetectionType
 
 from .labels import TYPE_LABELS
+
+# 白名单文件相对路径（与 config/whitelist.yaml 默认配置一致）
+WHITELIST_RELPATH = "config/whitelist.yaml"
 
 def _merge_words_into_lexicon(pending: Dict[str, List[str]]) -> Tuple[int, int]:
     """把 {类别: [词条]} 合并写入用户词库（去重）；返回 (新增, 跳过重复)。"""
@@ -264,6 +272,119 @@ def _add_words_to_lexicon(category: str, words_text: str, custom_category: Optio
         st.caption(f"词库文件：{lexicon_path}")
     else:
         st.info("ℹ️ 所有词条已存在于词库中")
+
+
+# ──────────────────────────────────────────────
+# 白名单 IO（R9）：config/whitelist.yaml 的 whitelist 列表读写
+#
+# 用途：白名单内的词不会被检测识别（词典/正则/NER 三路均过滤），
+# 供「自动检测误报永久排除」与设置弹窗白名单维护两个入口共用。
+# 检测每次 _load_config 重新读文件，写入后点「重新检测」即生效。
+# ──────────────────────────────────────────────
+
+
+def _resolve_whitelist_path() -> Path:
+    """白名单文件规范位置（与 resolve_user_lexicon_path 同策略）。
+
+    锚点链上已存在的 whitelist.yaml 直接复用（CWD 自建 -> exe 便携
+    目录 -> 源码树），跳过 frozen 内置只读副本（_MEIPASS，出厂副本
+    仅作首次初始化复制源）；全部不存在时锚定可写锚点新建。
+    """
+    from mask_tool.core.config_loader import (
+        runtime_anchor_dirs, writable_anchor_dir,
+    )
+
+    rel = Path(WHITELIST_RELPATH)
+    meipass = getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", "")
+    for anchor in runtime_anchor_dirs():
+        if meipass and anchor == Path(meipass):
+            continue
+        candidate = anchor / rel
+        if candidate.exists():
+            return candidate.resolve()
+    return (writable_anchor_dir() / rel).resolve()
+
+
+def _get_whitelist() -> List[str]:
+    """读白名单词条；文件不存在/损坏返回 []。"""
+    try:
+        p = _resolve_whitelist_path()
+        if p and p.exists():
+            with open(p, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            words = data.get("whitelist", [])
+            if isinstance(words, list):
+                return [str(w) for w in words if str(w).strip()]
+    except Exception:
+        pass
+    return []
+
+
+def _merge_words_into_whitelist(words: List[str]) -> Tuple[int, int]:
+    """合并追加白名单词条（去重保序）；返回 (新增, 跳过重复)。
+
+    文件不存在时新建；顶层结构保持 {whitelist: [...]}，
+    与出厂 whitelist.yaml 一致（注释不保留，重写为纯列表结构）。
+    """
+    p = _resolve_whitelist_path()
+    existing: List[str] = []
+    if p.exists():
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            wl = data.get("whitelist", [])
+            if isinstance(wl, list):
+                existing = [str(w) for w in wl if str(w).strip()]
+        except (OSError, yaml.YAMLError):
+            existing = []
+    seen = set(existing)
+    added = dup = 0
+    for w in words:
+        w = str(w).strip()
+        if not w:
+            continue
+        if w in seen:
+            dup += 1
+        else:
+            seen.add(w)
+            existing.append(w)
+            added += 1
+    if added:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    {"whitelist": existing}, f,
+                    allow_unicode=True, sort_keys=False,
+                )
+        except OSError:
+            return 0, dup
+    return added, dup
+
+
+def _remove_whitelist_words(words: List[str]) -> int:
+    """从白名单删除指定词条；返回实际删除数。文件缺失返回 0。"""
+    p = _resolve_whitelist_path()
+    if not p.exists():
+        return 0
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        wl = data.get("whitelist", [])
+        if not isinstance(wl, list):
+            return 0
+        targets = {str(w).strip() for w in words if str(w).strip()}
+        kept = [w for w in wl if str(w).strip() not in targets]
+        removed = len(wl) - len(kept)
+        if removed:
+            with open(p, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    {"whitelist": kept}, f,
+                    allow_unicode=True, sort_keys=False,
+                )
+        return removed
+    except (OSError, yaml.YAMLError):
+        return 0
 
 
 def _get_lexicon_info() -> Optional[dict]:

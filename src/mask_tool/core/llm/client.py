@@ -213,12 +213,14 @@ class OpenAICompatClient:
             }
         if capability == _CAP_JSON_OBJECT:
             note = (
-                "只输出一个符合以下 JSON Schema 的 JSON 对象，"
+                "只输出一个符合以下 JSON Schema 的 JSON 对象"
+                "（顶层必须是 {...} 对象，不要输出顶层数组 [...]），"
                 f"不要输出任何其他文字：{schema_text}"
             )
             return _inject_system_note(msgs, note), {"type": "json_object"}
         note = (
-            "只输出一个符合以下 JSON Schema 的 JSON 对象，"
+            "只输出一个符合以下 JSON Schema 的 JSON 对象"
+            "（顶层必须是 {...} 对象，不要输出顶层数组 [...]），"
             f"不要输出任何其他文字：{schema_text}"
         )
         return _inject_system_note(msgs, note), None
@@ -299,20 +301,33 @@ def _extract_json_object(content: str) -> dict:
     if not content or not content.strip():
         raise LLMParseError("LLM 输出为空")
     text = content.strip()
-    # 剥 ```json ... ``` / ``` ... ``` 围栏
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
+    # 提取 ```json ... ``` / ``` ... ``` 围栏块（允许前后有噪声文字）
+    m = re.search(r"```[a-zA-Z]*\s*(.*?)```", text, re.DOTALL)
+    if m and m.group(1).strip():
+        text = m.group(1).strip()
     # 直接解析
     try:
         obj = json.loads(text)
         if isinstance(obj, dict):
             return obj
+        if isinstance(obj, list):
+            # 模型无视 schema 输出顶层数组（prompt 档常见漂移）：包装标记，
+            # 由调用方按语义取用（复核=items / 检测=entities）
+            return {"__root_array__": obj}
     except json.JSONDecodeError:
         pass
     # 定位首个平衡的 JSON 对象（raw_decode 从每个 '{' 起点尝试，
     # 跳过模型输出的前后噪声文字）
     decoder = json.JSONDecoder()
+    # 先尝试整体解码（顶层可能直接是数组）
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        try:
+            obj, _ = decoder.raw_decode(stripped)
+            if isinstance(obj, list):
+                return {"__root_array__": obj}
+        except json.JSONDecodeError:
+            pass
     for i, ch in enumerate(text):
         if ch != "{":
             continue
