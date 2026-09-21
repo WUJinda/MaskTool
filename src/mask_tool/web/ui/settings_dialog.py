@@ -211,6 +211,12 @@ def _handle_save_llm(ev: Dict) -> None:
         "base_url": base_url, "model": model, "role": role,
         "api_key": api_key if api_key else str(get_llm_settings().get("api_key", "") or ""),
     }
+    # 配置未变（指纹相同）则保留已有连通状态；变了则清除（需重新测试）
+    from mask_tool.core.app_settings import get_llm_test_state, llm_config_sig
+    _prev = get_llm_test_state()
+    if _prev and _prev.get("sig") == llm_config_sig(
+            updates["base_url"], updates["model"], str(updates["api_key"])):
+        updates["last_test"] = _prev
     if set_llm_settings(updates):
         _flash("ok", f"✅ 模型配置已保存：{model or base_url}")
     else:
@@ -233,5 +239,15 @@ def _handle_test_llm(ev: Dict) -> None:
     except Exception as exc:
         ok, msg = False, f"连接失败：{exc}"
     st.session_state["llm_health"] = {"ok": ok, "msg": msg}
+    # 持久化：随配置指纹存入 yaml，重开软件后侧栏徽标按指纹匹配恢复
+    from datetime import datetime
+    from mask_tool.core.app_settings import get_llm_settings, llm_config_sig, set_llm_settings
+    llm = get_llm_settings()
+    llm["last_test"] = {
+        "ok": ok, "msg": msg,
+        "at": datetime.now().isoformat(timespec="minutes"),
+        "sig": llm_config_sig(base_url, model, api_key),
+    }
+    set_llm_settings(llm)
     _flash("ok" if ok else "err", ("✅ " if ok else "❌ ") + msg)
 

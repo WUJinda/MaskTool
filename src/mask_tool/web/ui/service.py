@@ -75,6 +75,24 @@ def _snapshot_llm_summary() -> None:
         st.session_state["llm_health"] = {"ok": True, "msg": f"模型 {s.model}"}
     elif s.first_error or s.errors:
         st.session_state["llm_health"] = {"ok": False, "msg": s.first_error[:60]}
+    # 持久化真实运行结果（重开软件后仍有效）：按 yaml 配置指纹回写
+    if s.calls > 0 or s.first_error or s.errors:
+        from datetime import datetime
+        from mask_tool.core.app_settings import (
+            get_llm_settings, llm_config_sig, set_llm_settings,
+        )
+        _llm = get_llm_settings()
+        _llm["last_test"] = {
+            "ok": s.calls > 0,
+            "msg": (f"模型 {s.model}" if s.calls > 0
+                    else (s.first_error or "模型调用失败")[:60]),
+            "at": datetime.now().isoformat(timespec="minutes"),
+            "sig": llm_config_sig(
+                str(_llm.get("base_url", "") or ""),
+                str(_llm.get("model", "") or ""),
+                str(_llm.get("api_key", "") or "")),
+        }
+        set_llm_settings(_llm)
 
 
 def _load_config(mode: str, config_path: Optional[str] = None) -> MaskConfig:

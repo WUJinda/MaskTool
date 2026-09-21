@@ -91,8 +91,19 @@ def render_sidebar():
             if _llm_ready:
                 _role = {"adjudicator": "仅复核", "detector": "仅补充检测",
                          "both": "复核+检测"}.get(str(_llm_cfg.get("role", "adjudicator")), "仅复核")
-                _health = st.session_state.get("llm_health") or {}
-                if _health.get("ok"):
+                _health = st.session_state.get("llm_health")
+                if not _health:
+                    # 本次会话未测过：回退持久化连通状态（配置指纹匹配才有效，
+                    # 重开软件后测试通过且配置未变 → 仍显示已连通）
+                    from mask_tool.core.app_settings import get_llm_test_state, llm_config_sig
+                    _lt = get_llm_test_state()
+                    if _lt and _lt.get("sig") == llm_config_sig(
+                            str(_llm_cfg.get("base_url", "") or ""),
+                            str(_llm_cfg.get("model", "") or ""),
+                            str(_llm_cfg.get("api_key", "") or "")):
+                        _health = {"ok": bool(_lt.get("ok")),
+                                   "msg": str(_lt.get("msg", ""))}
+                if _health and _health.get("ok"):
                     _badge = "🟢 已连通"
                 elif _health:
                     _badge = "🔴 " + str(_health.get("msg", "未连通"))[:24]

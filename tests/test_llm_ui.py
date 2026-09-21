@@ -123,7 +123,8 @@ def test_save_llm_rejects_empty_model(fake_st, settings_file):
     assert "模型名称" in fake_st.session_state["_settings_flash"]["text"]
 
 
-def test_test_llm_event_caches_health(fake_st, monkeypatch):
+def test_test_llm_event_caches_health(fake_st, monkeypatch, settings_file):
+    """测试连接：会话徽标 + 持久化 last_test（配置指纹随行）。"""
     mod = _dialog_mod()
     calls = {}
 
@@ -143,9 +144,14 @@ def test_test_llm_event_caches_health(fake_st, monkeypatch):
     })
     assert fake_st.session_state["llm_health"] == {"ok": True, "msg": "端点可用（模型 m）"}
     assert calls["init"][3] == 8             # 探活用短超时
+    from mask_tool.core.app_settings import get_llm_test_state, llm_config_sig
+    lt = get_llm_test_state()
+    assert lt["ok"] is True and lt["msg"] == "端点可用（模型 m）"
+    assert lt["sig"] == llm_config_sig("http://x:11434/v1", "m", "")
+    assert lt["at"]                          # 含测试时间
 
 
-def test_test_llm_event_failure_reported(fake_st, monkeypatch):
+def test_test_llm_event_failure_reported(fake_st, monkeypatch, settings_file):
     mod = _dialog_mod()
 
     def boom(*a, **k):
@@ -276,3 +282,56 @@ def test_friendly_error_balance():
     assert "余额不足" in friendly_error(
         "HTTP 429：{\"error\":{\"code\":\"1113\",\"message\":\"余额不足或无可用资源包\"}}")
     assert "限流" in friendly_error("HTTP 429: too many requests")
+
+
+# ---------------------------------------------------------------------------
+# 连通状态持久化：保存配置按指纹保留/清除；徽标跨会话恢复
+# ---------------------------------------------------------------------------
+def test_save_llm_keeps_last_test_when_sig_match(fake_st, settings_file):
+    """保存与测试时相同的配置 → last_test 保留（不强迫重测）。"""
+    mod = _dialog_mod()
+    from mask_tool.core.app_settings import (
+        get_llm_test_state, llm_config_sig, set_llm_settings,
+    )
+    set_llm_settings({
+        "base_url": "http://x:11434/v1", "model": "m", "api_key": "k", "role": "both",
+        "last_test": {"ok": True, "msg": "端点可用", "at": "2026-09-21T15:00",
+                      "sig": llm_config_sig("http://x:11434/v1", "m", "k")},
+    })
+    mod._handle_settings_event({
+        "action": "save_llm", "base_url": "http://x:11434/v1",
+        "model": "m", "api_key": "k", "role": "both",
+    })
+    lt = get_llm_test_state()
+    assert lt.get("ok") is True and lt.get("sig")
+
+
+def test_save_llm_clears_last_test_when_config_changed(fake_st, settings_file):
+    """改配置（指纹变化）→ last_test 清除，徽标回到未测试。"""
+    mod = _dialog_mod()
+    from mask_tool.core.app_settings import (
+        get_llm_test_state, llm_config_sig, set_llm_settings,
+    )
+    set_llm_settings({
+        "base_url": "http://x:11434/v1", "model": "m", "api_key": "k", "role": "both",
+        "last_test": {"ok": True, "msg": "端点可用", "at": "2026-09-21T15:00",
+                      "sig": llm_config_sig("http://x:11434/v1", "m", "k")},
+    })
+    mod._handle_settings_event({
+        "action": "save_llm", "base_url": "http://y:8000/v1",
+        "model": "m2", "api_key": "k", "role": "both",
+    })
+    assert get_llm_test_state() == {}
+
+
+def test_last_test_field_tolerated_by_llmconfig(settings_file):
+    """yaml llm 段携带 last_test 时 LLMConfig(**段) 不报错（严格 kwargs 兼容）。"""
+    from mask_tool.core.app_settings import set_llm_settings
+    from mask_tool.models.config import LLMConfig
+    from mask_tool.core.app_settings import get_llm_settings
+    set_llm_settings({
+        "base_url": "http://x", "model": "m",
+        "last_test": {"ok": False, "msg": "超时", "at": "t", "sig": "s"},
+    })
+    cfg = LLMConfig(**get_llm_settings())
+    assert cfg.base_url == "http://x" and cfg.last_test["ok"] is False

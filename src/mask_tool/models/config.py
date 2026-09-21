@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 
 @dataclass
@@ -45,6 +45,7 @@ class LLMConfig:
     budget_max_calls: int = 200        # 单次运行最大调用数（超出跳过后续）
     wall_clock_budget_seconds: int = 180  # LLM 增强总时长预算（秒），0=不限制
     cache: bool = True                 # 同 (text, source, type) 判定复用
+    last_test: Optional[dict] = None   # UI 层持久化连通状态 {ok,msg,at,sig}（不参与检测链路）
 
 
 @dataclass

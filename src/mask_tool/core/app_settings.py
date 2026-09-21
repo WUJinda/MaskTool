@@ -83,6 +83,22 @@ def set_llm_settings(updates: Dict[str, object]) -> bool:
     return save_settings({"llm": dict(updates)})
 
 
+def llm_config_sig(base_url: str, model: str, api_key: str) -> str:
+    """模型端点配置指纹：base_url/model/api_key 三元组 hash。
+
+    作为连通状态（last_test）的匹配键：配置未变时测试结果跨重启有效。
+    """
+    import hashlib
+    raw = f"{(base_url or '').strip()}|{(model or '').strip()}|{api_key or ''}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def get_llm_test_state() -> Dict[str, object]:
+    """读取持久化的模型连通状态 llm.last_test（{ok,msg,at,sig}；无则空 dict）。"""
+    lt = get_llm_settings().get("last_test")
+    return dict(lt) if isinstance(lt, dict) else {}
+
+
 def get_explicit_save_dir() -> str:
     """用户显式设置的保存文件夹（原样字符串）；未设置返回空串。"""
     raw = load_settings().get("save_dir")
