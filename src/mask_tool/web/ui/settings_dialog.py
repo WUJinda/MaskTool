@@ -91,6 +91,7 @@ def _render_settings_component() -> None:
             "base_url": str(llm.get("base_url", "") or ""),
             "model": str(llm.get("model", "") or ""),
             "role": str(llm.get("role", "adjudicator") or "adjudicator"),
+            "api_key": str(llm.get("api_key", "") or ""),
             "api_key_set": bool(llm.get("api_key")),
         },
         "flash": st.session_state.pop("_settings_flash", None),

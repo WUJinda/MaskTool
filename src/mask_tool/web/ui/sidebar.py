@@ -43,7 +43,7 @@ def render_sidebar():
                 format_func=lambda x: {
                     "focused": "🎯 精准模式",
                     "smart": "🧠 智能模式（推荐）",
-                    "strict": "🔒 严格模式",
+                    "strict": "⛔ 严格模式",
                     "aggressive": "🚀 激进模式",
                 }.get(x, x),
                 index=1,

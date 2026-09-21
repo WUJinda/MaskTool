@@ -256,6 +256,9 @@
         margin: 0.1rem 0 0.1rem;
     }
     .side-label::after { content: ""; flex: 1; height: 1px; background: rgba(25,26,46,.1); }
+
+    /* 运行模式卡：模式下拉与组标签拉开间距 */
+    [data-testid="stSidebar"] [data-testid="stSelectbox"]:has(input[aria-label="模式"]) { margin-top: 0.4rem; }
     /* 词库徽章行：代替大号 st.metric */
     .lex-chip {
         display: flex; align-items: center; justify-content: space-between;

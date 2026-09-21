@@ -260,6 +260,17 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field label { color: #aab2
 }
 html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); color: #dfe2ee; }
 #mt-settings-root .mt-sub-field .ctrl:focus { border-color: #5b6ee8; box-shadow: 0 0 0 2px rgba(91,110,232,.18); }
+/* API Key 输入行：包裹层 + 右侧眼睛切换按钮 */
+#mt-settings-root .mt-key-wrap { position: relative; }
+#mt-settings-root .mt-key-wrap .ctrl { padding-right: 2.1rem; }
+#mt-settings-root .mt-eye {
+  position: absolute; right: .3rem; top: 50%; transform: translateY(-50%);
+  width: 1.6rem; height: 1.6rem; border: none; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; border-radius: 6px; color: #8a93a5;
+}
+#mt-settings-root .mt-eye:hover { color: #5b6ee8; background: rgba(91,110,232,.1); }
+#mt-settings-root .mt-eye svg { width: 15px; height: 15px; }
+html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
 #mt-settings-root .mt-sub-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .2rem; }
 #mt-settings-root .mt-ok-btn {
   background: linear-gradient(135deg, #5b6ee8, #764ba2); color: #fff; border: none;
@@ -292,7 +303,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
           <div class="mt-dlg-title">⚙️ 设置</div>
           <button class="mt-nav-item active" data-pane="basic"><span class="ic">🧩</span>基本设置</button>
           <button class="mt-nav-item" data-pane="lexicon"><span class="ic">📖</span>词库管理</button>
-          <button class="mt-nav-item" data-pane="model"><span class="ic">🤖</span>模型配置</button>
+          <button class="mt-nav-item" data-pane="model"><span class="ic">💻</span>模型配置</button>
         </nav>
         <div class="mt-dlg-body">
           <button class="mt-dlg-close" id="mt-close" title="关闭">✕</button>
@@ -346,7 +357,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
           <section class="mt-pane" id="mt-pane-model">
             <div class="mt-pane-title">模型配置</div>
             <div class="mt-set-card">
-              <div class="mt-card-title">🤖 AI 增强检测（内网大模型）</div>
+              <div class="mt-card-title">💻 AI 增强检测（内网大模型）</div>
               <div class="mt-card-sub">接入 OpenAI 兼容内网端点（Ollama / vLLM / Xinference / One-API 网关）。保存后在侧栏「AI 增强检测」开关启用；仅智能/激进模式生效。</div>
               <div class="mt-sub-field">
                 <label>服务地址（Base URL）</label>
@@ -358,7 +369,10 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
               </div>
               <div class="mt-sub-field">
                 <label>API Key（内网通常留空）</label>
-                <input class="ctrl" id="mt-llm-key" type="password" placeholder="可选；也可用环境变量 MASKTOOL_LLM_API_KEY">
+                <div class="mt-key-wrap">
+                  <input class="ctrl" id="mt-llm-key" type="password" placeholder="可选；也可用环境变量 MASKTOOL_LLM_API_KEY">
+                  <button type="button" id="mt-llm-key-eye" class="mt-eye" aria-label="显示/隐藏 API Key" title="显示/隐藏"></button>
+                </div>
               </div>
               <div class="mt-sub-field">
                 <label>使用方式</label>
@@ -418,6 +432,12 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
 
   /* ── 侧栏底部设置按钮 ── */
   var GEAR_SVG = '<svg class="mt-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+  var EYE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  (function initEye() {
+    var eye = doc.getElementById('mt-llm-key-eye');
+    if (eye) eye.innerHTML = EYE_SVG;
+  })();
 
   /* 幂等注入：目标容器（Streamlit 侧栏垂直块）不存在时静默返回；
    * 按钮已挂在当前容器上时直接复用；容器被重建（rerun）时先移除旧节点再注入 */
@@ -677,9 +697,17 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
     });
     var keyEl = q('mt-llm-key');
     if (keyEl && doc.activeElement !== keyEl) {
-      keyEl.value = '';
-      keyEl.placeholder = llm.api_key_set ? '已设置（输入新值可覆盖）' : '可选；也可用环境变量 MASKTOOL_LLM_API_KEY';
+      /* 回显已保存的 key（明文保存在本地配置，组件为同源本地 iframe）；
+         输入焦点中不覆盖；password 类型默认遮罩，眼睛按钮切换显隐 */
+      keyEl.value = llm.api_key || '';
     }
+    /* 眼睛按钮：切换 password/text + 图标切换 */
+    bindOnce('mt-llm-key-eye', 'click', function () {
+      var el = q('mt-llm-key');
+      var show = el.type === 'password';
+      el.type = show ? 'text' : 'password';
+      this.innerHTML = show ? EYE_OFF_SVG : EYE_SVG;
+    });
     doc.querySelectorAll('#mt-llm-role button').forEach(function (b) {
       b.classList.toggle('active', b.dataset.role === (llm.role || 'adjudicator'));
     });
