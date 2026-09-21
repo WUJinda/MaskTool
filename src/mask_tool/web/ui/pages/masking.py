@@ -254,46 +254,43 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             for i, r in enumerate(all_results)
         }
 
-    # 筛选器
-    st.markdown("#### 🎛️ 筛选与选择")
-
-    filter_cols = st.columns(5)
+    # 筛选工具条：行一 = 四个下拉；行二 = 搜索 + 批量操作（原型 filter-bar-preview）。
+    # 卡片容器/控件样式由 app.css 以 aria-label :has 锚定渲染。
+    filter_cols = st.columns(4)
     with filter_cols[0]:
         filter_type = st.selectbox(
-            "按类别筛选",
-            options=["全部"] + list(type_counts.keys()),
+            "类别",
+            options=["全部类别"] + list(type_counts.keys()),
             key="filter_type",
         )
     with filter_cols[1]:
         filter_status = st.selectbox(
-            "按处置筛选",
-            options=["全部", "✅ 自动脱敏", "⚠️ 建议脱敏", "ℹ️ 仅提示"],
+            "状态",
+            options=["全部状态", "✅ 自动脱敏", "⚠️ 建议脱敏", "ℹ️ 仅提示"],
             key="filter_status",
         )
     with filter_cols[2]:
         filter_source = st.selectbox(
-            "按来源筛选",
-            options=["全部", "✍️ 手动", "📘 词典", "🤖 NER", "🔍 正则", "📄 文件名"],
+            "来源",
+            options=["全部来源", "✍️ 手动", "📘 词典", "🤖 NER", "🔍 正则", "📄 文件名"],
             key="filter_source",
         )
     with filter_cols[3]:
         filter_file = st.selectbox(
-            "按文件筛选",
-            options=["全部"] + list(file_results.keys()),
+            "文件",
+            options=["全部文件"] + list(file_results.keys()),
             key="filter_file",
         )
-    with filter_cols[4]:
-        search_text = st.text_input("搜索", placeholder="输入关键词...", key="search_text")
 
     # 应用筛选
     filtered_indices = []
     for i, r in enumerate(all_results):
         # 类别筛选
-        if filter_type != "全部":
+        if filter_type != "全部类别":
             if TYPE_LABELS.get(r.text_type, r.text_type.value) != filter_type:
                 continue
         # 状态筛选
-        if filter_status != "全部":
+        if filter_status != "全部状态":
             status_map = {
                 "✅ 自动脱敏": DetectionStatus.AUTO_MASK,
                 "⚠️ 建议脱敏": DetectionStatus.SUGGEST_MASK,
@@ -302,7 +299,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             if r.status != status_map.get(filter_status):
                 continue
         # 来源筛选
-        if filter_source != "全部":
+        if filter_source != "全部来源":
             source_map = {
                 "✍️ 手动": "manual",
                 "📘 词典": "dictionary",
@@ -313,52 +310,53 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             if r.source != source_map.get(filter_source):
                 continue
         # 文件筛选
-        if filter_file != "全部":
+        if filter_file != "全部文件":
             if Path(r.location.file).name != filter_file:
                 continue
-        # 搜索
-        if search_text:
-            if search_text.lower() not in r.text.lower() and search_text.lower() not in r.context.lower():
-                continue
         filtered_indices.append(i)
+    # 注：搜索过滤在下方搜索框实例化之后应用（1.64 语义：widget 实例化
+    # 时才把前端新值写入 session_state；渲染前读会滞后一轮）
 
-    # 批量操作按钮：分组工具栏（全选/清空/反选 ｜ 仅自动/仅建议 ｜ 加入词库）
-    batch_cols = st.columns([1, 1, 1, 0.12, 1.25, 1.25, 0.12, 1.5])
+    # 行二：搜索 + 批量操作（作用于当前筛选结果）
+    batch_cols = st.columns([1.6, 0.7, 0.7, 0.7, 0.85, 0.85, 1.3])
     with batch_cols[0]:
-        if st.button("全选", width="stretch"):
+        search_text = st.text_input(
+            "搜索",
+            placeholder="🔍 搜索敏感词内容…",
+            key="search_text",
+            label_visibility="collapsed",
+        )
+    with batch_cols[1]:
+        if st.button("✓ 全选", width="stretch"):
             for i in filtered_indices:
                 st.session_state["user_selections"][i] = True
             st.rerun()
-    with batch_cols[1]:
-        if st.button("清空", width="stretch"):
+    with batch_cols[2]:
+        if st.button("✕ 清空", width="stretch"):
             for i in filtered_indices:
                 st.session_state["user_selections"][i] = False
             st.rerun()
-    with batch_cols[2]:
-        if st.button("反选", width="stretch"):
+    with batch_cols[3]:
+        if st.button("⇋ 反选", width="stretch"):
             for i in filtered_indices:
                 st.session_state["user_selections"][i] = not st.session_state["user_selections"][i]
             st.rerun()
-    with batch_cols[3]:
-        st.markdown('<div class="col-sep"></div>', unsafe_allow_html=True)
     with batch_cols[4]:
-        if st.button("仅自动脱敏", width="stretch"):
+        if st.button("仅自动", width="stretch"):
             for i in filtered_indices:
                 st.session_state["user_selections"][i] = (
                     all_results[i].status == DetectionStatus.AUTO_MASK
                 )
             st.rerun()
     with batch_cols[5]:
-        if st.button("仅建议脱敏", width="stretch"):
+        if st.button("仅建议", width="stretch"):
             for i in filtered_indices:
                 st.session_state["user_selections"][i] = (
                     all_results[i].status == DetectionStatus.SUGGEST_MASK
                 )
             st.rerun()
     with batch_cols[6]:
-        st.markdown('<div class="col-sep"></div>', unsafe_allow_html=True)
-    with batch_cols[7]:
-        if st.button("📚 选中项加入词库", width="stretch"):
+        if st.button("📚 加入词库", width="stretch"):
             for i in filtered_indices:
                 st.session_state["user_selections"][i] = True
                 if "learn_set" not in st.session_state:
@@ -366,11 +364,22 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
                 st.session_state["learn_set"].add(i)
             st.rerun()
 
-    # 选中计数
+    # 搜索过滤（search_text 刚实例化，值为最新）
+    if search_text:
+        _kw = search_text.lower()
+        filtered_indices = [
+            i for i in filtered_indices
+            if _kw in all_results[i].text.lower() or _kw in all_results[i].context.lower()
+        ]
+
+    # 选中计数（表格上方右对齐）
     selected_count = sum(
         1 for i in filtered_indices if st.session_state["user_selections"].get(i, False)
     )
-    st.caption(f"当前显示 {len(filtered_indices)} 项，已选中 **{selected_count}** 项")
+    st.markdown(
+        f'<div class="sel-count">当前显示 {len(filtered_indices)} 项 · 已选中 <b>{selected_count}</b> 项</div>',
+        unsafe_allow_html=True,
+    )
 
     # 检测结果表格（AgGrid；VALUE_CHANGED：勾选变化立即回传并触发
     # rerun，保证表格勾选态与选中计数同步——I6 问题3；选中项终审

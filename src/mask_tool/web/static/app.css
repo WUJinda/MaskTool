@@ -476,7 +476,62 @@
     }
 
     /* 批量按钮组分隔线 */
-    .col-sep { width: 1px; height: 1.2rem; background: #e3e6ee; margin: 0.35rem auto 0; }
+    /* 筛选工具条（Step 3）：两行 horizontalBlock 以 aria-label 锚定拼成一张卡 */
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) {
+        background: #fff; border: 1px solid #e2e5ee;
+        border-radius: 12px 12px 0 0; border-bottom: none;
+        padding: 12px 14px 6px; margin: 0.45rem 0 0;
+    }
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) {
+        background: #fff; border: 1px solid #e2e5ee;
+        border-radius: 0 0 12px 12px;
+        padding: 6px 14px 12px; margin: 0;
+    }
+    /* 卡内 label：小灰字 */
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) [data-testid="stWidgetLabel"] p {
+        font-size: 0.68rem; font-weight: 700; color: #8a93a5; margin-bottom: 2px;
+    }
+    /* 卡内下拉/输入框：34px 高、圆角 8、浅灰底 */
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) [data-testid="stSelectbox"] .react-aria-ComboBox > div,
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stSelectbox"] .react-aria-ComboBox > div {
+        border-radius: 8px; border: 1px solid #d9dce6; background: #f7f8fb;
+        min-height: 34px; display: flex; align-items: center;
+    }
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) [data-testid="stSelectbox"] .react-aria-ComboBox input,
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stSelectbox"] .react-aria-ComboBox input {
+        font-size: 0.8rem; color: #3d4354; background: transparent;
+    }
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stTextInput"] input {
+        font-size: 0.8rem; color: #3d4354;
+        border-radius: 8px; border: 1px solid #d9dce6; background: #f7f8fb;
+        min-height: 34px; padding: 4px 10px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stTextInput"] input::placeholder {
+        color: #9aa3b5;
+    }
+    /* 批量按钮：紧凑胶囊风（!important 压过全局 secondary 按钮规则） */
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) button[kind="secondary"] {
+        font-size: 0.78rem !important; font-weight: 600 !important; color: #3d4354;
+        background: #f7f8fb; border: 1px solid #d9dce6;
+        border-radius: 8px !important; padding: 0.35rem 0.7rem !important;
+        min-height: 34px !important; height: auto !important; white-space: nowrap !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) button[kind="secondary"]:hover {
+        border-color: #b9bedd; background: #eef0f7;
+    }
+    /* 全选（第 2 列）为 primary 强调（1.64 列结构 data-testid=stColumn） */
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stColumn"]:nth-child(2) button[kind="secondary"] {
+        background: rgba(91,110,232,.12); border-color: rgba(91,110,232,.35); color: #4a5bd0;
+    }
+    div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stColumn"]:nth-child(2) button[kind="secondary"]:hover {
+        background: rgba(91,110,232,.2); border-color: rgba(91,110,232,.5);
+    }
+    /* 选中计数：表格上方右对齐 */
+    .sel-count {
+        text-align: right; font-size: 0.75rem; color: #8a93a5;
+        margin: 0.3rem 0 0.35rem;
+    }
+    .sel-count b { color: #4a5bd0; font-size: 0.85rem; }
 
     /* 全局控件字号统一 */
     .stTextArea textarea, .stTextInput input { font-size: 0.85rem !important; }
@@ -528,7 +583,44 @@
     html[data-app-theme="dark"] .ov-bar-label { color: #c6ccdd; }
     html[data-app-theme="dark"] .ov-bar-track { background: rgba(255,255,255,.07); }
     html[data-app-theme="dark"] .ov-bar-num { color: #c6ccdd; }
-    html[data-app-theme="dark"] .col-sep { background: rgba(255,255,255,.16); }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) {
+        background: #1a1d2e; border-color: rgba(255,255,255,.08);
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) {
+        background: #1a1d2e; border-color: rgba(255,255,255,.08);
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) [data-testid="stWidgetLabel"] p {
+        color: #9aa3b5;
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) [data-testid="stSelectbox"] .react-aria-ComboBox > div,
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stSelectbox"] .react-aria-ComboBox > div {
+        border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.05);
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="类别"]) [data-testid="stSelectbox"] .react-aria-ComboBox input,
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stSelectbox"] .react-aria-ComboBox input {
+        color: #c6ccdd;
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stTextInput"] input {
+        color: #c6ccdd;
+        border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.05);
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stTextInput"] input::placeholder {
+        color: #8a93a5;
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) button[kind="secondary"] {
+        color: #c6ccdd; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.14);
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) button[kind="secondary"]:hover {
+        border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.1);
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stColumn"]:nth-child(2) button[kind="secondary"] {
+        background: rgba(91,110,232,.22) !important; border-color: rgba(91,110,232,.5) !important; color: #9fb0ff !important;
+    }
+    html[data-app-theme="dark"] div[data-testid="stHorizontalBlock"]:has(input[aria-label="搜索"]) [data-testid="stColumn"]:nth-child(2) button[kind="secondary"]:hover {
+        background: rgba(91,110,232,.32) !important;
+    }
+    html[data-app-theme="dark"] .sel-count { color: #8a93a5; }
+    html[data-app-theme="dark"] .sel-count b { color: #9fb0ff; }
     html[data-app-theme="dark"] .step.pending { background: rgba(255,255,255,.09); color: #8a93a5; }
     html[data-app-theme="dark"] .step-arrow { color: #5a6274; }
     html[data-app-theme="dark"] .file-card {
