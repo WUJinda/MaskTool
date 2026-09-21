@@ -156,25 +156,34 @@ class OpenAICompatClient:
         raise last_error or LLMParseError("结构化补全失败：所有档位均不可用")
 
     def health_check(self) -> Tuple[bool, str]:
-        """探活：GET /models 校验端点可达且模型存在。
+        """端到端探活：POST /chat/completions 发送 max_tokens=1 最小补全。
+
+        2026-09-21 教训：原实现仅探 ``GET /models``，而智谱 Anthropic
+        兼容层（/api/anthropic）同样实现了 ``/v1/models``（路径与返回
+        格式与 OpenAI 完全相同）却不存在 ``/v1/chat/completions``，
+        导致"测试绿、运行 404 熔断"的假阳性。改为真实发一次最小
+        补全：路径错（404）、鉴权失败（401/403）、余额/限流（429）、
+        模型名错误均可在测试连接一步暴露，与 AI 增强运行链路同路径。
 
         Returns:
             (可用, 说明文本)。不可用时说明文本给出原因（供 UI/日志展示）
         """
+        import time as _time
+        t0 = _time.perf_counter()
         try:
-            resp = self._request("GET", "/models", None)
-            data = resp.json()
+            self._chat_content({
+                "model": self.model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+                "temperature": 0.0,
+                "stream": False,
+            })
         except LLMError as exc:
-            return False, str(exc)
-        except (ValueError, TypeError):
-            return False, "端点响应非 JSON"
-        models = [
-            m.get("id", "") for m in data.get("data", [])
-            if isinstance(m, dict)
-        ]
-        if self.model not in models:
-            return False, f"端点可达但模型不存在: {self.model}"
-        return True, f"端点可用（模型 {self.model}）"
+            return False, _probe_hint(str(exc))
+        return True, (
+            f"端到端连通（模型 {self.model}，"
+            f"{_time.perf_counter() - t0:.1f}s）"
+        )
 
     def list_models(self) -> List[str]:
         """列出端点模型 id 清单；失败抛 LLMUnavailableError。"""
@@ -326,6 +335,21 @@ class OpenAICompatClient:
     def base_url(self) -> str:
         """归一化后的端点根地址（含版本段）。"""
         return self._base
+
+
+def _probe_hint(msg: str) -> str:
+    """探活失败信息的用户侧提示（按状态码/正文区分两类 404）。"""
+    if "404" not in msg and "not found" not in msg.lower():
+        return msg
+    # 模型名错误（正文含 model/模型）与路径不存在（正文为通用 Not Found）
+    low = msg.lower()
+    if "model" in low or "模型" in msg:
+        return f"{msg}。模型名不存在，请核对模型名称"
+    return (
+        f"{msg}。/chat/completions 不存在：Base URL 需为 OpenAI 兼容端点"
+        "（以 /v1、/v4 等版本段结尾，如智谱 https://open.bigmodel.cn/api/paas/v4；"
+        "Anthropic 专用地址 /api/anthropic 不适用）"
+    )
 
 
 def _inject_system_note(messages: List[dict], note: str) -> List[dict]:

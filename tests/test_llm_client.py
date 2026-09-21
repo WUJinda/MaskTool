@@ -4,6 +4,8 @@
 全部用注入的 FakeSession 模拟 HTTP，不依赖真实端点。
 """
 
+import json
+
 import pytest
 import requests
 
@@ -22,9 +24,13 @@ MSGS = [{"role": "user", "content": "测试"}]
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, json_data=None):
+    def __init__(self, status_code=200, json_data=None, text=None):
         self.status_code = status_code
         self._json = json_data if json_data is not None else {}
+        # _request 的 4xx detail 提示读 resp.text：默认由 json_data 序列化
+        self.text = text if text is not None else (
+            json.dumps(json_data, ensure_ascii=False)
+            if json_data is not None else "")
 
     def json(self):
         if self._json is None:
@@ -198,17 +204,49 @@ def test_chat_unavailable_on_network_error():
 # 端点探活与地址归一化
 # ---------------------------------------------------------------------------
 
-def test_health_check_model_missing():
-    s = FakeSession(get_response=FakeResponse(200, {"data": [{"id": "other"}]}))
+def test_health_check_ok_e2e():
+    # 端到端探活：与运行链路同路径（POST /chat/completions）发最小补全
+    s = FakeSession()
     c = _client(s)
     ok, msg = c.health_check()
-    assert not ok and "模型不存在" in msg
+    assert ok and "m1" in msg
+    assert s.posts[-1][0].endswith("/chat/completions")
+    assert s.posts[-1][1]["max_tokens"] == 1
 
 
-def test_health_check_ok():
-    c = _client(FakeSession())
+def test_health_check_path_404_anthropic_style():
+    # 2026-09-21 案例：智谱 /api/anthropic 兼容层有 /v1/models 但
+    # /chat/completions 不存在 → 端到端探活必须报错（旧 GET /models
+    # 实现在此会假绿）
+    s = FakeSession(scripted=[FakeResponse(404, {"detail": "Not Found"})])
+    c = _client(s)
     ok, msg = c.health_check()
-    assert ok
+    assert not ok and "OpenAI 兼容" in msg
+
+
+def test_health_check_model_404():
+    # 404 但正文含 model → 提示核对模型名而非端点协议
+    s = FakeSession(scripted=[FakeResponse(404, {
+        "error": {"message": "The model m1 does not exist"}})])
+    c = _client(s)
+    ok, msg = c.health_check()
+    assert not ok and "模型名" in msg
+
+
+def test_health_check_429_balance():
+    # 鉴权/额度类 4xx 不重试直接报：余额不足应直接暴露给测试连接
+    s = FakeSession(scripted=[FakeResponse(429, {
+        "error": {"code": "1113", "message": "余额不足或无可用资源包"}})])
+    c = _client(s)
+    ok, msg = c.health_check()
+    assert not ok and "429" in msg and "余额" in msg
+
+
+def test_health_check_network_error():
+    s = FakeSession(network_error=requests.ConnectionError("refused"))
+    c = _client(s)
+    ok, msg = c.health_check()
+    assert not ok and "refused" in msg
 
 
 def test_base_url_normalization():

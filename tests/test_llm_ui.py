@@ -143,7 +143,7 @@ def test_test_llm_event_caches_health(fake_st, monkeypatch, settings_file):
         "model": "m", "api_key": "",
     })
     assert fake_st.session_state["llm_health"] == {"ok": True, "msg": "端点可用（模型 m）"}
-    assert calls["init"][3] == 8             # 探活用短超时
+    assert calls["init"][3] == 12            # 端到端探活短超时
     from mask_tool.core.app_settings import get_llm_test_state, llm_config_sig
     lt = get_llm_test_state()
     assert lt["ok"] is True and lt["msg"] == "端点可用（模型 m）"

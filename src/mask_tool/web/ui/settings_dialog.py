@@ -234,7 +234,7 @@ def _handle_test_llm(ev: Dict) -> None:
         _flash("err", "请先填写服务地址与模型名称")
         return
     try:
-        client = OpenAICompatClient(base_url, model, api_key=api_key, timeout=8)
+        client = OpenAICompatClient(base_url, model, api_key=api_key, timeout=12)
         ok, msg = client.health_check()
     except Exception as exc:
         ok, msg = False, f"连接失败：{exc}"
