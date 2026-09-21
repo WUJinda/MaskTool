@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mask-tool"
-version = "0.1.2"
+version = "0.1.3"
 description = "本地文件脱敏工具 - 支持可逆脱敏、智能识别、多格式办公文件处理"
 readme = "README.md"
 license = {text = "MIT"}
