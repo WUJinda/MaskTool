@@ -750,9 +750,16 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
       role: llmRole(),
     };
   }
+  /* 表单草稿：测试/保存触发 rerun，刷新时先回填未保存的表单值（否则被
+     已保存的 yaml 值覆盖——测试的目的正是验证未保存的输入）。
+     挂 B.ui 跨 rerun：iframe 重建时局部变量会丢 */
+  var DRAFT = B.ui.draft || null;
+  function _stashDraft(f) { B.ui.draft = f; DRAFT = f; }
+  function _dropDraft() { B.ui.draft = null; DRAFT = null; }
   bindOnce('mt-llm-save', 'click', function () {
     var f = llmForm();
     if (!f.model) { toast('请填写模型名称', true); return; }
+    _stashDraft(f);
     sendEvent({ action: 'save_llm', base_url: f.base_url, model: f.model,
                 api_key: f.api_key, role: f.role });
     toast('正在保存模型配置…');
@@ -760,6 +767,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
   bindOnce('mt-llm-test', 'click', function () {
     var f = llmForm();
     if (!f.base_url || !f.model) { toast('请先填写服务地址与模型名称', true); return; }
+    _stashDraft(f);
     q('mt-llm-status').textContent = '测试中…';
     sendEvent({ action: 'test_llm', base_url: f.base_url, model: f.model,
                 api_key: f.api_key });
@@ -800,6 +808,23 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
     doc.querySelectorAll('#mt-llm-role button').forEach(function (b) {
       b.classList.toggle('active', b.dataset.role === (llm.role || 'adjudicator'));
     });
+    /* 草稿回填：rerun 后优先恢复测试/保存前未落盘的表单值。
+       保留到 ARGS.llm 与草稿一致（=已保存）才清除：onData 单轮 rerun
+       可能被调多次（v2 组件多次 render），一次性 drop 会让后续调用
+       用空 yaml 再次覆盖，表单仍被清空 */
+    if (DRAFT) {
+      if (doc.activeElement !== q('mt-llm-url')) q('mt-llm-url').value = DRAFT.base_url;
+      if (doc.activeElement !== q('mt-llm-model')) q('mt-llm-model').value = DRAFT.model;
+      if (doc.activeElement !== q('mt-llm-key')) q('mt-llm-key').value = DRAFT.api_key;
+      doc.querySelectorAll('#mt-llm-role button').forEach(function (b) {
+        b.classList.toggle('active', b.dataset.role === DRAFT.role);
+      });
+      var saved = (llm.base_url || '') === DRAFT.base_url
+        && (llm.model || '') === DRAFT.model
+        && (llm.api_key || '') === (DRAFT.api_key || '')
+        && (llm.role || 'adjudicator') === DRAFT.role;
+      if (saved) _dropDraft();
+    }
     if (ARGS.flash && ARGS.flash.text) {
       q('mt-llm-status').textContent = ARGS.flash.text;
       toast(ARGS.flash.text, ARGS.flash.level === 'err');
