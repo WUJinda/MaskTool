@@ -2,11 +2,13 @@
 
 架构（零侵入 web/app.py）：
     desktop.py
+      ├─ 单实例守卫：锁文件 + PID/创建时间校验；已有实例则唤起其窗口
+      │  后退出；残留孤儿进程经确认后清理（R8，2026-09-21）
       ├─ 找空闲端口，subprocess 启动 streamlit（仅本机监听 + headless + 关遥测）
       ├─ 轮询 /_stcore/health 直到就绪
       ├─ pywebview 创建原生窗口（WebView2/EdgeChromium 后端）加载该地址
       ├─ js_api.pick_save_folder：原生目录选择（保存位置设置，2026-09-20）
-      └─ 窗口关闭 → 结束 streamlit 进程树，退出
+      └─ 窗口关闭 → 结束 streamlit 进程树并释放锁，退出
 
 用法：
     mask-tool app            # CLI 子命令（推荐记忆点：一个可执行文件搞定全部）
@@ -19,6 +21,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -27,6 +30,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -36,6 +40,10 @@ APP_TITLE = "mask-tool 文件脱敏工具"
 WINDOW_SIZE = (1440, 900)
 MIN_SIZE = (1100, 700)
 STARTUP_TIMEOUT = 60  # 秒
+
+# 单实例锁文件名（位于 %LOCALAPPDATA%/mask-tool/，与日志同目录；
+# 非 Windows 退回 ~/.mask-tool/）
+LOCK_FILENAME = "instance.lock"
 
 # 品牌色（与 assets/icon/masktool-icon.svg 一致）
 # 标题栏底色 = 图标底色深蓝紫；边框/强调色 = 遮蔽条品牌紫；标题文字用白
@@ -193,6 +201,262 @@ def _terminate_tree(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
+# ──────────────────────────────────────────────
+# 单实例守卫（R8）：锁文件 + PID 探活，防多实例堆积
+#
+# 背景（2026-09-21）：机器上残留 35 组共 71 个 mask-tool 进程（历次
+# 启动/测试未清理），旧实例的模块缓存与磁盘新代码错位导致运行期
+# ImportError。守卫让重复启动收敛到单实例，并对孤儿进程给出确认清理。
+#
+# 设计约束：守卫任何一步失败都必须放行启动（try/except 兑底），
+# 绝不能因为守卫自身问题阻断应用。
+# ──────────────────────────────────────────────
+
+
+def _lock_path() -> Path:
+    """锁文件路径（用户级，每用户互不影响）。"""
+    base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "mask-tool"
+    return base / LOCK_FILENAME
+
+
+def _pid_start_ft(pid: int) -> Optional[int]:
+    """进程创建时间（Windows FILETIME，100ns ticks）；用于防 PID 复用误判。
+
+    非 Windows 或获取失败返回 None（调用方退化为仅探活）。
+    """
+    if os.name != "nt" or pid <= 0:
+        return None
+    try:
+        import ctypes
+
+        class _FILETIME(ctypes.Structure):
+            _fields_ = [
+                ("lo", ctypes.c_uint32),
+                ("hi", ctypes.c_uint32),
+            ]
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            return None
+        try:
+            creation = _FILETIME()
+            exit_, kernel, user = _FILETIME(), _FILETIME(), _FILETIME()
+            ok = kernel32.GetProcessTimes(
+                h, ctypes.byref(creation), ctypes.byref(exit_),
+                ctypes.byref(kernel), ctypes.byref(user),
+            )
+            if not ok:
+                return None
+            return (creation.hi << 32) | creation.lo
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        return None
+
+
+def _pid_alive(pid: int, start_ft: Optional[int]) -> bool:
+    """PID 存活且创建时间与锁记录一致（防 PID 被无关进程复用误判）。
+
+    Windows：OpenProcess + GetProcessTimes 精确校验；
+    非 Windows：os.kill(pid, 0) 仅探活（无创建时间可比，接受低概率误差）。
+    """
+    if not pid or pid <= 0:
+        return False
+    if os.name == "nt":
+        actual = _pid_start_ft(pid)
+        if actual is None:
+            return False
+        return start_ft is None or actual == start_ft
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # 进程存在但属他人（仅探活场景下视为存活）
+    except OSError:
+        return False
+
+
+def _read_lock() -> dict:
+    """读锁内容；无锁/损坏返回 {}。"""
+    try:
+        lp = _lock_path()
+        if lp.exists():
+            data = json.loads(lp.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def _write_instance_lock(streamlit_pid: int, port: int) -> None:
+    """以原子替换写入本实例的锁（desktop 宿主 + streamlit 子进程）。"""
+    try:
+        lp = _lock_path()
+        lp.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "desktop_pid": os.getpid(),
+            "desktop_start_ft": _pid_start_ft(os.getpid()),
+            "streamlit_pid": streamlit_pid,
+            "streamlit_start_ft": _pid_start_ft(streamlit_pid),
+            "port": port,
+            "created": datetime.now().isoformat(timespec="seconds"),
+        }
+        tmp = lp.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, lp)
+    except Exception:
+        pass  # 锁写入失败不阻断启动（守卫退化为无锁模式）
+
+
+def _release_instance_lock() -> None:
+    """退出时释放锁；仅当锁仍属本进程时删除（防误删新接管实例的锁）。"""
+    try:
+        lp = _lock_path()
+        if not lp.exists():
+            return
+        if _read_lock().get("desktop_pid") == os.getpid():
+            lp.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _focus_existing_window() -> bool:
+    """把已有实例的主窗口带到前台（按全局唯一标题定位）。
+
+    返回是否成功前置；非 Windows/未找到窗口返回 False。
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, APP_TITLE)
+        if not hwnd:
+            return False
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE（最小化时先还原）
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        return False
+
+
+def _find_orphan_servers() -> list:
+    """扫描不属于本进程的 mask-tool streamlit 服务进程（孤儿候选）。
+
+    匹配特征（覆盖开发/打包两种形态）：
+      - python/pythonw 命令行含 streamlit run 且指向 mask_tool/web/app.py；
+      - frozen 形态：mask-tool.exe 且带 --mt-streamlit-server。
+    desktop 宿主（-m mask_tool.desktop）不匹配，不会被误伤；
+    本进程自身不在扫描结果内（扫描发生在 _start_server 之前，子进程尚不存在）。
+    非 Windows 不扫描（返回 []）。
+    """
+    if os.name != "nt":
+        return []
+    try:
+        ps_script = (
+            "Get-CimInstance Win32_Process | Where-Object { "
+            "$_.Name -notlike 'powershell*' -and $_.Name -notlike 'pwsh*' -and ("
+            "($_.CommandLine -like '*streamlit run*mask_tool*web*app.py*') -or "
+            "($_.Name -eq 'mask-tool.exe' -and "
+            " $_.CommandLine -like '*--mt-streamlit-server*')) } | "
+            "Select-Object -ExpandProperty ProcessId"
+        )
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, text=True, timeout=20,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            stdin=subprocess.DEVNULL,
+        )
+        pids = [
+            int(tok) for tok in out.stdout.split()
+            if tok.strip().isdigit() and int(tok) != os.getpid()
+        ]
+        return sorted(set(pids))
+    except Exception:
+        return []
+
+
+def _kill_tree(pid: int) -> None:
+    """结束指定进程及其子树（与 _terminate_tree 同风格，无一次性守卫）。"""
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdin=subprocess.DEVNULL,
+            )
+        else:
+            os.kill(pid, 9)
+    except Exception:
+        pass
+
+
+def _confirm_yesno(text: str) -> bool:
+    """原生 YES/NO 确认框；非 Windows 或失败时保守返回 False（取消）。"""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            # MB_YESNO(0x4) | MB_ICONQUESTION(0x20) | MB_TOPMOST(0x40000)
+            ret = ctypes.windll.user32.MessageBoxW(
+                0, text, "mask-tool", 0x4 | 0x20 | 0x40000
+            )
+            return ret == 6  # IDYES
+        except Exception:
+            return False
+    try:
+        sys.stderr.write(f"[mask-tool] {text} （非交互环境，保守取消）\n")
+    except Exception:
+        pass
+    return False
+
+
+def _guard_single_instance() -> bool:
+    """启动守卫：True=继续启动，False=本次退出。
+
+    分支：
+    1. 锁内 desktop 宿主存活且窗口唤起成功 → 已有实例在用，前台化后退出；
+    2. 锁内进程存活但窗口不可见，或扫描到孤儿服务 → 用户确认后清理并
+       继续启动，取消则退出（绝不自动杀未经确认的进程）；
+    3. 无锁且无孤儿 → 直接启动。
+    """
+    try:
+        data = _read_lock()
+        d_pid = int(data.get("desktop_pid") or 0)
+        s_pid = int(data.get("streamlit_pid") or 0)
+        d_alive = _pid_alive(d_pid, data.get("desktop_start_ft"))
+        s_alive = _pid_alive(s_pid, data.get("streamlit_start_ft"))
+
+        if d_alive and _focus_existing_window():
+            # 已有实例在用：窗口已带到前台，本次启动安静退出
+            return False
+
+        # 孤儿候选 = 锁内存活的进程 + 扫描到的残留服务
+        known = [p for p, alive in ((d_pid, d_alive), (s_pid, s_alive)) if alive]
+        targets = list(dict.fromkeys(known + _find_orphan_servers()))
+        if targets:
+            ok = _confirm_yesno(
+                f"检测到 {len(targets)} 个 mask-tool 后台服务进程仍在运行"
+                f"（可能是此前异常退出留下的残留）。\n\n"
+                "[是] 结束这些进程并启动应用（若有正在使用的窗口将被关闭）\n"
+                "[否] 保留这些进程，本次不启动"
+            )
+            if not ok:
+                return False
+            for pid in targets:
+                _kill_tree(pid)
+        return True
+    except Exception:
+        return True  # 守卫自身异常不阻断启动
+
+
 class _DesktopApi:
     """暴露给页面 JS 的原生能力（保存位置目录选择）。"""
 
@@ -295,14 +559,18 @@ def _apply_titlebar_theme() -> None:
 
 def main() -> None:
     _set_app_user_model_id()
+    if not _guard_single_instance():
+        return
     port = _free_port()
     proc = _start_server(port)
+    _write_instance_lock(proc.pid, port)
     window_ref: list = []
 
     try:
         _wait_ready(port)
     except Exception:
         _terminate_tree(proc)
+        _release_instance_lock()
         raise
 
     url = f"http://127.0.0.1:{port}"
