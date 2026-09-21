@@ -43,6 +43,7 @@ SOURCE_LABELS: Dict[str, str] = {
     "ner": "🤖 NER",
     "regex": "🔍 正则",
     "path": "📄 文件名",
+    "llm": "✨ AI",
 }
 
 MODE_DESCRIPTIONS = {

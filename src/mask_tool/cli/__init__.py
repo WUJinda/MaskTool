@@ -227,6 +227,10 @@ def mask(
     confirm: bool = typer.Option(False, "--confirm", help="启用交互式确认模式（逐项勾选）"),
     all_items: bool = typer.Option(False, "--all", help="同时替换建议脱敏项(SUGGEST_MASK)；默认仅自动脱敏项"),
     learn: bool = typer.Option(True, "--learn/--no-learn", help="确认时学习到词库（默认开启）"),
+    llm: Optional[bool] = typer.Option(
+        None, "--llm/--no-llm",
+        help="强制启用/禁用 AI 增强检测（默认跟随配置：app_settings > default.yaml）",
+    ),
     mask_names: bool = typer.Option(
         True, "--mask-names/--no-mask-names",
         help="对输出产物做文件名/目录名脱敏（单文件脱敏主名，目录模式脱敏镜像树；默认开启）",
@@ -248,6 +252,12 @@ def mask(
     )
 
     cfg = _load_config(config, mode)
+    # P3：CLI 强制开关覆盖配置（True=强制启用；False=强制禁用；None=跟随配置）
+    if llm is not None:
+        cfg.llm.enabled = llm
+    if cfg.llm.enabled and not (cfg.llm.base_url and cfg.llm.model):
+        console.print("[yellow]警告: llm 已启用但 base_url/model 未配置，本次回退纯规则模式[/yellow]")
+        cfg.llm.enabled = False
 
     # M4 批次目录：output/<时间戳-短uuid>，与 mapping 的 batch_id 一致
     batch_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
@@ -940,6 +950,10 @@ def inspect(
     input_path: List[Path] = typer.Argument(..., help="输入文件或目录路径", exists=True),
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="配置文件路径"),
     mode: str = typer.Option("smart", "--mode", "-m", help="运行模式: focused/strict/smart/aggressive"),
+    llm: Optional[bool] = typer.Option(
+        None, "--llm/--no-llm",
+        help="强制启用/禁用 AI 增强检测（默认跟随配置：app_settings > default.yaml）",
+    ),
 ) -> None:
     """检测文件中的敏感信息（不执行脱敏）。
 
@@ -950,6 +964,12 @@ def inspect(
     console.print(f"模式: {mode}")
 
     cfg = _load_config(config, mode)
+    # P3：CLI 强制开关覆盖配置（True=强制启用；False=强制禁用；None=跟随配置）
+    if llm is not None:
+        cfg.llm.enabled = llm
+    if cfg.llm.enabled and not (cfg.llm.base_url and cfg.llm.model):
+        console.print("[yellow]警告: llm 已启用但 base_url/model 未配置，本次回退纯规则模式[/yellow]")
+        cfg.llm.enabled = False
     pipeline = Pipeline(
         cfg, lexicon_path=cfg.lexicon_path, whitelist_path=cfg.whitelist_path,
     )

@@ -387,10 +387,12 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     if filtered_indices:
         from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
+        # P3：存在 AI 判定时附加「AI 判定」列（未启用 LLM 时零噪声）
+        _has_llm = any(all_results[i].llm_reason for i in filtered_indices)
         display_rows = []
         for i in filtered_indices:
             r = all_results[i]
-            display_rows.append({
+            _row = {
                 "index": i,
                 "选择": st.session_state["user_selections"].get(i, False),
                 "敏感信息": r.text,
@@ -398,9 +400,13 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
                 "来源": SOURCE_LABELS.get(r.source, r.source),
                 "置信度": r.confidence,
                 "处置": STATUS_LABELS.get(r.status, r.status.value),
-                "文件": Path(r.location.file).name if r.location.file else "",
-                "上下文": r.context[:80] + "..." if len(r.context) > 80 else r.context,
-            })
+            }
+            if _has_llm:  # AI 判定插在处置与文件之间
+                _reason = r.llm_reason or ""
+                _row["AI 判定"] = _reason[:44] + ("…" if len(_reason) > 44 else "")
+            _row["文件"] = Path(r.location.file).name if r.location.file else ""
+            _row["上下文"] = r.context[:80] + "..." if len(r.context) > 80 else r.context
+            display_rows.append(_row)
 
         df_display = pd.DataFrame(display_rows)
 
@@ -417,6 +423,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         gb.configure_column("来源", editable=False, width=88)
         gb.configure_column("置信度", editable=False, type=["numericColumn"], precisionFormat=2, width=86)
         gb.configure_column("处置", editable=False, width=96)
+        if _has_llm:
+            gb.configure_column("AI 判定", editable=False, width=220)
         gb.configure_column("文件", editable=False, width=168)
         gb.configure_column("上下文", editable=False, width=380)
         # 注：不配置行选择（configure_selection）——见上方“选择”列注释。
@@ -576,6 +584,9 @@ def _confirm_mask_dialog(uploaded_files, final_selected, all_results,
             )
             if r.location.file:
                 label += f" · {Path(r.location.file).name}"
+            # P3：AI 判定理由随终审清单展示（复核调整/剔除建议/增量检出）
+            if r.llm_reason:
+                label += f" · ✨ {r.llm_reason[:36]}{'…' if len(r.llm_reason) > 36 else ''}"
             st.checkbox(label, value=True, key=_sel_key(i))
 
     # 批次信息（原 Step 4 区块移入：批次名称作为执行前最后一步在此填写）

@@ -187,6 +187,12 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
     # 加载配置
     cfg = _load_config(mode)
     cfg.ner.enabled = ner_enabled and not manual_only
+    # P3：UI 侧栏「AI 增强检测」开关覆盖 enabled；端点未配置时自动回落
+    # （端点在设置弹窗「模型配置」维护，经 config_loader 合并进 cfg.llm）
+    cfg.llm.enabled = (
+        bool(st.session_state.get("llm_enabled", False))
+        and bool(cfg.llm.base_url and cfg.llm.model)
+    )
 
     pipeline = Pipeline(
         cfg, manual_words=manual_words,
@@ -321,6 +327,12 @@ def _run_masking(
     # 加载配置
     cfg = _load_config(mode)
     cfg.ner.enabled = ner_enabled and not manual_only
+    # P3：UI 侧栏「AI 增强检测」开关覆盖 enabled；端点未配置时自动回落
+    # （端点在设置弹窗「模型配置」维护，经 config_loader 合并进 cfg.llm）
+    cfg.llm.enabled = (
+        bool(st.session_state.get("llm_enabled", False))
+        and bool(cfg.llm.base_url and cfg.llm.model)
+    )
 
     pipeline = Pipeline(
         cfg, batch_id=batch_id, manual_words=manual_words,

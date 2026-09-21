@@ -75,15 +75,24 @@ def _render_settings_component() -> None:
     import json as _json
 
     from mask_tool.core.app_settings import (
-        default_save_dir, get_explicit_save_dir, get_save_dir, get_theme,
+        default_save_dir, get_explicit_save_dir, get_llm_settings, get_save_dir,
+        get_theme,
     )
 
+    # P3：LLM 模型配置（api_key 不回传明文，仅回传是否已设置）
+    llm = get_llm_settings()
     payload = {
         "lexicon": _lexicon_payload(),
         "theme": get_theme(),
         "save_dir": get_save_dir(),
         "save_dir_default": default_save_dir(),
         "save_dir_explicit": bool(get_explicit_save_dir()),
+        "llm": {
+            "base_url": str(llm.get("base_url", "") or ""),
+            "model": str(llm.get("model", "") or ""),
+            "role": str(llm.get("role", "adjudicator") or "adjudicator"),
+            "api_key_set": bool(llm.get("api_key")),
+        },
         "flash": st.session_state.pop("_settings_flash", None),
     }
 
@@ -151,4 +160,54 @@ def _handle_settings_event(ev: Dict) -> None:
     elif action == "import_csv":
         _flash("ok", _import_lexicon_csv_text(str(ev.get("text", ""))))
         st.rerun()
+    elif action == "save_llm":
+        _handle_save_llm(ev)
+        st.rerun()
+    elif action == "test_llm":
+        _handle_test_llm(ev)
+        st.rerun()
+
+
+def _handle_save_llm(ev: Dict) -> None:
+    """保存模型配置到 app_settings（整体写 llm 段；api_key 空串=清除）。"""
+    from mask_tool.core.app_settings import get_llm_settings, set_llm_settings
+
+    base_url = str(ev.get("base_url", "")).strip()
+    model = str(ev.get("model", "")).strip()
+    api_key = str(ev.get("api_key", "")).strip()
+    role = str(ev.get("role", "adjudicator")).strip().lower()
+    if role not in ("adjudicator", "detector", "both"):
+        role = "adjudicator"
+    if not model:
+        _flash("err", "请填写模型名称")
+        return
+    saved = get_llm_settings()
+    updates = {
+        "base_url": base_url, "model": model, "role": role,
+        # 前端仅在用户输入了新值时回传 api_key；空串且明确清空标志才清除
+        "api_key": api_key if api_key else "",
+    }
+    if set_llm_settings(updates):
+        _flash("ok", f"✅ 模型配置已保存：{model or base_url}")
+    else:
+        _flash("err", "配置写入失败：无法写 config/app_settings.yaml（检查目录权限）")
+
+
+def _handle_test_llm(ev: Dict) -> None:
+    """用表单当前值测试端点连通性（不必先保存）；结果缓存到 llm_health。"""
+    from mask_tool.core.llm.client import OpenAICompatClient
+
+    base_url = str(ev.get("base_url", "")).strip()
+    model = str(ev.get("model", "")).strip()
+    api_key = str(ev.get("api_key", "")).strip()
+    if not base_url or not model:
+        _flash("err", "请先填写服务地址与模型名称")
+        return
+    try:
+        client = OpenAICompatClient(base_url, model, api_key=api_key, timeout=8)
+        ok, msg = client.health_check()
+    except Exception as exc:
+        ok, msg = False, f"连接失败：{exc}"
+    st.session_state["llm_health"] = {"ok": ok, "msg": msg}
+    _flash("ok" if ok else "err", ("✅ " if ok else "❌ ") + msg)
 

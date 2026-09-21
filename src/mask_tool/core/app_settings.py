@@ -66,6 +66,23 @@ def save_settings(updates: Dict[str, object]) -> bool:
         return False
 
 
+def get_llm_settings() -> Dict[str, object]:
+    """读取应用级 LLM 配置段（设置弹窗「模型配置」维护）。
+
+    返回 llm 段 dict（可能为空 dict = 未配置）；字段与
+    models.config.LLMConfig 同名（base_url/model/api_key/role 等）。
+    合并优先级见 config_loader.load_config：app_settings.llm >
+    default.yaml.llm > 代码默认。
+    """
+    data = load_settings().get("llm")
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def set_llm_settings(updates: Dict[str, object]) -> bool:
+    """整体写入 LLM 配置段（总是写完整段，空值表示清除该字段）。"""
+    return save_settings({"llm": dict(updates)})
+
+
 def get_explicit_save_dir() -> str:
     """用户显式设置的保存文件夹（原样字符串）；未设置返回空串。"""
     raw = load_settings().get("save_dir")

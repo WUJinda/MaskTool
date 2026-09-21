@@ -291,5 +291,29 @@ def load_config(
 
     if mode != "smart":
         cfg.mode = mode
+    # P3：应用级 LLM 配置合并（app_settings.yaml 的 llm 段 > default.yaml）
+    events.extend(_merge_app_llm(cfg))
     events.extend(finalize_paths(cfg, source_desc, implicit_config))
     return cfg, events
+
+
+def _merge_app_llm(cfg) -> list:
+    """把 app_settings.yaml 的 llm 段合并进 cfg.llm（用户显式设置优先）。
+
+    设置弹窗「模型配置」维护；Web 侧栏开关与 CLI --llm/--no-llm 最终
+    覆盖 enabled（见 ui/service.py 与 cli）。延迟 import 防循环依赖
+    （app_settings 模块级引用本模块的 find_data_file/writable_anchor_dir）。
+    返回 events 列表（正常为空，合并失败一条 warn）。
+    """
+    try:
+        from dataclasses import fields as _dc_fields
+        from mask_tool.core.app_settings import get_llm_settings
+        saved = get_llm_settings()
+        if saved:
+            valid = {f.name for f in _dc_fields(cfg.llm)}
+            for k, v in saved.items():
+                if k in valid:
+                    setattr(cfg.llm, k, v)
+        return []
+    except Exception as exc:  # 设置文件损坏等：保持 YAML 配置，不阻断
+        return [("warn", f"警告: 应用级 LLM 配置合并失败({exc})，使用配置文件值")]
