@@ -145,6 +145,11 @@ def _inject_theme_bridge():
               }}
             }}
             paintAg();
+            /* MutationObserver：iframe 新插入（重建/首次挂载）时立即涂装，
+               避免最多 800ms 的 light→dark 补涂闪烁；轮询仅作兜底 */
+            new MutationObserver(function () {{ paintAg(); }}).observe(
+              d.body, {{ childList: true, subtree: true }}
+            );
             setInterval(paintAg, 800);
           }} catch (e) {{ /* 跨域/异常时静默，保持默认 light */ }}
         }})();

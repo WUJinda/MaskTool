@@ -434,25 +434,48 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         # 勾选变化（单元格值编辑）即时回传 + rerun；
         # 深色涂装由主题桥脚本直接向 st_aggrid iframe 注入 CSS 变量
         # （theme='dark' 字符串/custom_css 在该库 1.2.1 均无效，见 assets.py）
+        # key：稳定 element id，防止勾选翻转→数据哈希变化→iframe 整体重建
+        # （取消勾选后表格闪烁的根因）；server_sync_strategy="server_wins"
+        # 必须配套：默认 client_wins 在首次手动编辑后永久忽略服务器推送，
+        # 批量按钮（全选/清空等）将不再更新表格视觉。
         grid_response = AgGrid(
             df_display,
+            key="masking_results_grid",
             gridOptions=gridOptions,
             update_mode=GridUpdateMode.VALUE_CHANGED,
             fit_columns_on_grid_load=False,
             height=500,
             allow_unsafe_jscode=True,
             theme="streamlit",
+            server_sync_strategy="server_wins",
         )
 
         # 从回传数据（编辑后的全表）同步勾选态；有变化立即 rerun，
-        # 保证计数与表格一致（I6 问题3；选中项终审在执行确认对话框，R7）
-        changed = _apply_grid_selection(
-            filtered_indices,
-            grid_response.get("data"),
-            st.session_state["user_selections"],
-        )
-        if changed:
-            st.rerun()
+        # 保证计数与表格一致（I6 问题3；选中项终审在执行确认对话框，R7）。
+        # server_wins 下服务器推送不会更新组件 return_value：陈旧回传会在
+        # 批量按钮（全选/清空等）修改后立即覆盖回滚。用回传指纹守卫：
+        # 同一份回传数据只应用一次，新编辑（新指纹）才重新同步。
+        grid_data = grid_response.get("data")
+        _sig = None
+        if grid_data is not None:
+            try:
+                if isinstance(grid_data, list):
+                    _checks = tuple(bool(row.get("选择")) for row in grid_data)
+                else:
+                    _checks = tuple(bool(v) for v in grid_data["选择"].tolist())
+                _sig = hash(_checks)
+            except Exception:
+                _sig = None
+        if _sig is None or _sig != st.session_state.get("last_grid_sig"):
+            changed = _apply_grid_selection(
+                filtered_indices,
+                grid_data,
+                st.session_state["user_selections"],
+            )
+            if _sig is not None:
+                st.session_state["last_grid_sig"] = _sig
+            if changed:
+                st.rerun()
 
     # ── Step 4: 执行脱敏 ──（步骤条已固定在顶部，此处不再重复）
 
