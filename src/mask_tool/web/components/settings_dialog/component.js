@@ -94,6 +94,7 @@ html[data-app-theme="dark"] #mt-settings-entry .mt-settings-icon:hover { backgro
   width: 780px; max-width: 94vw; height: 540px; max-height: 88vh;
   background: #fff; border-radius: 14px; box-shadow: 0 18px 60px rgba(15,17,30,.35);
   display: flex; overflow: hidden; animation: mt-pop .18s ease-out;
+  position: relative;
 }
 html[data-app-theme="dark"] #mt-settings-root .mt-dialog { background: #1d2032; }
 @keyframes mt-pop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -128,16 +129,26 @@ html[data-app-theme="dark"] #mt-settings-root .mt-nav-item.active { color: #a9b6
 }
 html[data-app-theme="dark"] #mt-settings-root .mt-nav-item .soon { background: rgba(255,255,255,.1); color: #8a93a5; }
 
-#mt-settings-root .mt-dlg-body { flex: 1; overflow-y: auto; padding: 1.3rem 1.5rem; position: relative; }
+#mt-settings-root .mt-dlg-body { flex: 1; overflow-y: auto; padding: 0.4rem 1.5rem 1.3rem; position: relative; }
+/* 关闭按钮挂在不滚动的 dialog 层：内容滚动时恒定右上角 */
 #mt-settings-root .mt-dlg-close {
   position: absolute; top: .9rem; right: 1rem; width: 28px; height: 28px;
   border-radius: 7px; border: none; background: rgba(25,26,46,.05); color: #4a5064;
-  font-size: 1rem; cursor: pointer; line-height: 1;
+  font-size: 1rem; cursor: pointer; line-height: 1; z-index: 10;
 }
 html[data-app-theme="dark"] #mt-settings-root .mt-dlg-close { background: rgba(255,255,255,.08); color: #aab2c5; }
 #mt-settings-root .mt-dlg-close:hover { background: rgba(192,57,43,.12); color: #c0392b; }
-#mt-settings-root .mt-pane-title { font-size: 1.02rem; font-weight: 800; color: #1e2440; margin-bottom: 1.1rem; display: flex; align-items: baseline; }
-html[data-app-theme="dark"] #mt-settings-root .mt-pane-title { color: #e8eaf2; }
+/* 面板标题：sticky 固定在滚动区顶部（全宽背景条，滚动时遮住下方内容） */
+#mt-settings-root .mt-pane-title {
+  font-size: 1.02rem; font-weight: 800; color: #1e2440;
+  display: flex; align-items: baseline;
+  position: sticky; top: 0; z-index: 5;
+  margin: 0 -1.5rem 1rem; padding: 0.85rem 3.2rem 0.7rem 1.5rem;
+  background: #fff; border-bottom: 1px solid rgba(25,26,46,.07);
+}
+html[data-app-theme="dark"] #mt-settings-root .mt-pane-title {
+  color: #e8eaf2; background: #1d2032; border-bottom-color: rgba(255,255,255,.07);
+}
 #mt-settings-root .mt-pane { display: none; }
 #mt-settings-root .mt-pane.active { display: block; }
 
@@ -309,6 +320,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
   root.innerHTML = `
     <div class="mt-overlay" id="mt-overlay">
       <div class="mt-dialog" role="dialog" aria-label="设置">
+        <button class="mt-dlg-close" id="mt-close" title="关闭">✕</button>
         <nav class="mt-dlg-nav">
           <div class="mt-dlg-title">⚙️ 设置</div>
           <button class="mt-nav-item active" data-pane="basic"><span class="ic">🧩</span>基本设置</button>
@@ -316,7 +328,6 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
           <button class="mt-nav-item" data-pane="model"><span class="ic">💻</span>模型配置</button>
         </nav>
         <div class="mt-dlg-body">
-          <button class="mt-dlg-close" id="mt-close" title="关闭">✕</button>
 
           <section class="mt-pane active" id="mt-pane-basic">
             <div class="mt-pane-title">基本设置</div>
