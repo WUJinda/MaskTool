@@ -279,7 +279,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     with filter_cols[2]:
         filter_source = st.selectbox(
             "来源",
-            options=["全部来源", "✍️ 手动", "📘 词典", "🤖 NER", "🔍 正则", "📄 文件名"],
+            options=["全部来源", "✍️ 手动", "📘 词典", "⚙️ NER", "🔍 正则", "📄 文件名"],
             key="filter_source",
         )
     with filter_cols[3]:
@@ -310,7 +310,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             source_map = {
                 "✍️ 手动": "manual",
                 "📘 词典": "dictionary",
-                "🤖 NER": "ner",
+                "⚙️ NER": "ner",
                 "🔍 正则": "regex",
                 "📄 文件名": "path",
             }

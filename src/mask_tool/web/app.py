@@ -33,7 +33,7 @@ import streamlit as st
 
 st.set_page_config(
     page_title="mask-tool 文件脱敏工具",
-    page_icon="🔒",
+    page_icon="⛔",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -158,7 +158,7 @@ def main():
     )
 
     # 标签页
-    tab1, tab2 = st.tabs(["🔒 脱敏处理", "🔓 恢复还原"])
+    tab1, tab2 = st.tabs(["⛔ 脱敏处理", "♻️ 恢复还原"])
 
     with tab1:
         _render_masking_tab(mode, ner_enabled, irreversible, learn_words)

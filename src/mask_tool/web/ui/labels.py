@@ -40,7 +40,7 @@ STATUS_LABELS: Dict[DetectionStatus, str] = {
 SOURCE_LABELS: Dict[str, str] = {
     "manual": "✍️ 手动",
     "dictionary": "📘 词典",
-    "ner": "🤖 NER",
+    "ner": "⚙️ NER",
     "regex": "🔍 正则",
     "path": "📄 文件名",
     "llm": "✨ AI",

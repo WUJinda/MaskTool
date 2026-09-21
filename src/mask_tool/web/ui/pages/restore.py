@@ -48,7 +48,7 @@ def _render_restore_tab():
             st.rerun()
         return
 
-    st.markdown("#### 🔓 恢复还原")
+    st.markdown("#### ♻️ 恢复还原")
     st.caption("上传脱敏后的文件和映射表，将敏感信息还原为原始内容")
 
     st.markdown("---")
@@ -131,7 +131,7 @@ def _render_restore_tab():
                 )
 
     # 执行恢复按钮
-    if st.button("🔓 执行恢复", type="primary", width="stretch"):
+    if st.button("♻️ 执行恢复", type="primary", width="stretch"):
         with st.spinner("正在恢复文件..."):
             if restore_zip is not None:
                 _run_restore_zip(restore_zip, mapping)
