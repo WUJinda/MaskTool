@@ -72,43 +72,80 @@ class TestPidProbe:
         assert desktop._pid_alive(999_999_999, None) is False
 
 
+class TestWaitAndFocus:
+    def test_focus_succeeds_first_try(self):
+        with patch.object(desktop, "_focus_existing_window", return_value=True):
+            assert desktop._wait_and_focus(1, None, timeout_s=1) is True
+
+    def test_owner_dead_returns_early(self):
+        """宿主退出后立即停止等待，交上层接管（避免空等超时）。"""
+        with patch.object(desktop, "_focus_existing_window", return_value=False), \
+                patch.object(desktop, "_pid_alive", return_value=False):
+            assert desktop._wait_and_focus(1, None, timeout_s=5, poll_s=1) is False
+
+    def test_timeout_when_owner_alive_but_no_window(self):
+        with patch.object(desktop, "_focus_existing_window", return_value=False), \
+                patch.object(desktop, "_pid_alive", return_value=True):
+            assert desktop._wait_and_focus(1, None, timeout_s=0.05, poll_s=0.02) is False
+
+
 class TestGuard:
     def _no_orphans(self):
         return patch.object(desktop, "_find_orphan_servers", return_value=[])
+
+    def _stale_lock(self, live_streamlit_pid=None):
+        """构造陈旧锁：宿主已死（留下一个不存在的 PID），
+        可选保留存活的 streamlit PID（真残留场景）。"""
+        desktop._write_instance_lock(live_streamlit_pid or 0, 12345)
+        data = json.loads(desktop._lock_path().read_text(encoding="utf-8"))
+        data["desktop_pid"] = 999_999_999
+        data["desktop_start_ft"] = None
+        desktop._lock_path().write_text(json.dumps(data), encoding="utf-8")
 
     def test_clean_environment_allows_start(self):
         with self._no_orphans():
             assert desktop._guard_single_instance() is True
 
     def test_live_owner_focus_window_then_exit(self):
-        """锁内宿主存活且窗口唤起成功 → 本次启动退出，不进孤儿流程。"""
+        """锁内宿主存活：等待窗口出现并前置成功 → 本次启动退出。"""
         desktop._write_instance_lock(1, 2)
         with self._no_orphans(), \
-                patch.object(desktop, "_focus_existing_window", return_value=True):
+                patch.object(desktop, "_wait_and_focus", return_value=True):
             assert desktop._guard_single_instance() is False
 
-    def test_orphan_confirm_cancel_exits(self):
+    def test_live_owner_wait_timeout_notifies_without_cleanup(self):
+        """宿主活但窗口始终未出现：只提示，绝不扫描/清理（R10 核心约束）。"""
         desktop._write_instance_lock(1, 2)
+        with patch.object(desktop, "_wait_and_focus", return_value=False), \
+                patch.object(desktop, "_notify_already_running") as mock_info, \
+                patch.object(desktop, "_confirm_yesno") as mock_confirm, \
+                patch.object(desktop, "_kill_tree") as mock_kill, \
+                patch.object(desktop, "_find_orphan_servers") as mock_scan:
+            assert desktop._guard_single_instance() is False
+            mock_info.assert_called_once()
+            mock_scan.assert_not_called()
+            mock_confirm.assert_not_called()
+            mock_kill.assert_not_called()
+
+    def test_orphan_confirm_cancel_exits(self):
+        self._stale_lock(live_streamlit_pid=os.getpid())
         with self._no_orphans(), \
-                patch.object(desktop, "_focus_existing_window", return_value=False), \
                 patch.object(desktop, "_confirm_yesno", return_value=False):
             assert desktop._guard_single_instance() is False
 
     def test_orphan_confirm_yes_cleans_lock_pids(self):
-        """确认清理 → 杀掉锁内存活进程后正常启动。"""
-        desktop._write_instance_lock(1, 2)
+        """宿主已死：确认清理 → 杀掉锁内存活进程后正常启动。"""
+        self._stale_lock(live_streamlit_pid=os.getpid())
         with self._no_orphans(), \
-                patch.object(desktop, "_focus_existing_window", return_value=False), \
                 patch.object(desktop, "_confirm_yesno", return_value=True), \
                 patch.object(desktop, "_kill_tree") as mock_kill:
             assert desktop._guard_single_instance() is True
             mock_kill.assert_called_once_with(os.getpid())
 
     def test_scanned_orphans_merged_dedup(self):
-        """扫描孤儿与锁内进程合并去重后一并确认。"""
-        desktop._write_instance_lock(1, 2)
+        """扫描孤儿与锁内存活进程合并去重后一并确认。"""
+        self._stale_lock(live_streamlit_pid=os.getpid())
         with patch.object(desktop, "_find_orphan_servers", return_value=[700, 800]), \
-                patch.object(desktop, "_focus_existing_window", return_value=False), \
                 patch.object(desktop, "_confirm_yesno", return_value=True), \
                 patch.object(desktop, "_kill_tree") as mock_kill:
             assert desktop._guard_single_instance() is True

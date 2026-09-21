@@ -418,13 +418,54 @@ def _confirm_yesno(text: str) -> bool:
     return False
 
 
+def _wait_and_focus(
+    d_pid: int, d_start_ft, timeout_s: float = 20.0, poll_s: float = 1.0
+) -> bool:
+    """等待已有实例的主窗口出现并前置。
+
+    实例可能仍在启动中（锁已写入、pywebview 窗口尚未创建），
+    轮询期间宿主进程退出（启动失败）则提前返回 False 交由上层接管。
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if _focus_existing_window():
+            return True
+        if d_pid and not _pid_alive(d_pid, d_start_ft):
+            return False  # 宿主已退出，交由上层走陈旧锁接管
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_s)
+
+
+def _notify_already_running() -> None:
+    """信息提示：应用已在运行或正在启动（不提供清理选项）。"""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        # MB_OK(0) | MB_ICONINFORMATION(0x40) | MB_TOPMOST(0x40000)
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "mask-tool 已在运行或正在启动中。\n\n"
+            "如果长时间未出现窗口，可在任务管理器中结束"
+            " mask-tool 相关进程后重试。",
+            "mask-tool",
+            0x40 | 0x40000,
+        )
+    except Exception:
+        pass
+
+
 def _guard_single_instance() -> bool:
     """启动守卫：True=继续启动，False=本次退出。
 
-    分支：
-    1. 锁内 desktop 宿主存活且窗口唤起成功 → 已有实例在用，前台化后退出；
-    2. 锁内进程存活但窗口不可见，或扫描到孤儿服务 → 用户确认后清理并
-       继续启动，取消则退出（绝不自动杀未经确认的进程）；
+    分支（R10 修正语义：活实例绝不进清理流）：
+    1. 锁内 desktop 宿主存活 → 已有实例在用/启动中：等待其窗口出现
+       并前置（等待期间宿主退出则转分支 2 接管）；等不到窗口则信息
+       提示后退出——绝不清理仍属活实例的任何进程；
+    2. 宿主已死（锁陈旧）：锁内存活进程 + 扫描到的孤儿服务均为真
+       残留，用户确认后清理再启动，取消则退出；
     3. 无锁且无孤儿 → 直接启动。
     """
     try:
@@ -434,18 +475,24 @@ def _guard_single_instance() -> bool:
         d_alive = _pid_alive(d_pid, data.get("desktop_start_ft"))
         s_alive = _pid_alive(s_pid, data.get("streamlit_start_ft"))
 
-        if d_alive and _focus_existing_window():
-            # 已有实例在用：窗口已带到前台，本次启动安静退出
-            return False
+        if d_alive:
+            # 已有实例在用（或仍在启动中）：等待其窗口出现并前置。
+            # 此处不扫描、不清理——所有存活进程都属于该实例
+            if _wait_and_focus(d_pid, data.get("desktop_start_ft")):
+                return False
+            if _pid_alive(d_pid, data.get("desktop_start_ft")):
+                # 宿主活着但窗口始终未出现（启动极慢/异常）：提示后退出
+                _notify_already_running()
+                return False
+            # 等待期间宿主退出 → 落到下方陈旧锁接管分支
 
-        # 孤儿候选 = 锁内存活的进程 + 扫描到的残留服务
+        # 宿主已死：锁内存活进程 + 扫描到的残留服务，均为真孤儿
         known = [p for p, alive in ((d_pid, d_alive), (s_pid, s_alive)) if alive]
         targets = list(dict.fromkeys(known + _find_orphan_servers()))
         if targets:
             ok = _confirm_yesno(
-                f"检测到 {len(targets)} 个 mask-tool 后台服务进程仍在运行"
-                f"（可能是此前异常退出留下的残留）。\n\n"
-                "[是] 结束这些进程并启动应用（若有正在使用的窗口将被关闭）\n"
+                f"检测到上次异常退出留下的 {len(targets)} 个残留服务进程。\n\n"
+                "[是] 结束这些进程并启动应用\n"
                 "[否] 保留这些进程，本次不启动"
             )
             if not ok:
