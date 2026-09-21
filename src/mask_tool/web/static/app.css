@@ -697,3 +697,48 @@
     html[data-app-theme="dark"] .file-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.4); }
     html[data-app-theme="dark"] .file-card .name { color: #dfe3ee; }
     html[data-app-theme="dark"] .file-card .size { color: #8a93a5; }
+
+/* ── Loading 覆盖层（检测/脱敏执行中）────────────────────────── */
+.stMarkdown:has(> .mt-loading) { margin: 0; padding: 0; }
+.mt-loading {
+    position: fixed; inset: 0; z-index: 100000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(247, 248, 251, 0.6);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    animation: mtLoadFade .18s ease-out;
+}
+@keyframes mtLoadFade { from { opacity: 0; } to { opacity: 1; } }
+.mt-load-card {
+    background: #fff; border: 1px solid #e5e8f0; border-radius: 14px;
+    box-shadow: 0 18px 60px rgba(15,17,30,.28);
+    padding: 30px 44px 26px; min-width: 300px;
+    display: flex; flex-direction: column; align-items: center;
+    animation: mtLoadPop .22s cubic-bezier(.34,1.4,.64,1);
+}
+@keyframes mtLoadPop { from { transform: scale(.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.mt-load-ring {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent 0 25%, #667eea 55%, #764ba2 78%, transparent 82%);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    animation: mtSpin .9s linear infinite;
+}
+@keyframes mtSpin { to { transform: rotate(360deg); } }
+.mt-load-title { margin-top: 16px; font-size: .95rem; font-weight: 800; color: #2b3040; }
+.mt-load-sub { margin-top: 6px; font-size: .74rem; color: #8a93a5; }
+.mt-load-bar {
+    margin-top: 18px; width: 100%; height: 4px; border-radius: 99px;
+    background: #e5e8f0; overflow: hidden; position: relative;
+}
+.mt-load-bar::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: -35%;
+    width: 35%; border-radius: 99px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    animation: mtBar 1.3s ease-in-out infinite;
+}
+@keyframes mtBar { 0% { left: -35%; } 100% { left: 100%; } }
+html[data-app-theme="dark"] .mt-loading { background: rgba(13, 15, 26, 0.62); }
+html[data-app-theme="dark"] .mt-load-card { background: #1d2032; border-color: rgba(255,255,255,.08); }
+html[data-app-theme="dark"] .mt-load-title { color: #dfe2ee; }
+html[data-app-theme="dark"] .mt-load-sub { color: #8a93a5; }
+html[data-app-theme="dark"] .mt-load-bar { background: rgba(255,255,255,.1); }

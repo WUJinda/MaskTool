@@ -35,6 +35,19 @@ from ..state import (
 # 步骤指示器
 # ──────────────────────────────────────────────
 
+def _loading_overlay(title: str, sub: str):
+    """全屏 loading 覆盖层：脚本阻塞执行期间显示，rerun 后随元素消失自动移除。"""
+    st.markdown(
+        f'<div class="mt-loading"><div class="mt-load-card">'
+        f'<div class="mt-load-ring"></div>'
+        f'<div class="mt-load-title">{title}</div>'
+        f'<div class="mt-load-sub">{sub}</div>'
+        f'<div class="mt-load-bar"></div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_steps(current_step: int):
     """渲染步骤指示器 (1-4；current_step=5 表示全部完成)：
     节点连线式（数字圆点 + 渐变连线），卡片化 sticky 顶部"""
@@ -188,8 +201,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         )
 
     if st.button("🔍 开始检测", type="primary", width="stretch"):
-        with st.spinner("正在分析，检测敏感信息..."):
-            _run_detection(
+        _loading_overlay("正在分析，检测敏感信息...", "大文件 / 多文件可能需要几十秒，请勿关闭窗口")
+        _run_detection(
                 [] if dir_zip is not None else uploaded_files,
                 mode, ner_enabled,
                 manual_words=_parse_custom_words(custom_words_text),
@@ -706,8 +719,8 @@ def _confirm_mask_dialog(uploaded_files, final_selected, all_results,
             st.session_state["user_selections"][i] = i in sel_set
         batch_name = st.session_state.get("batch_name_input") or ""
         st.session_state.pop("pending_batch_id", None)
-        with st.spinner("正在执行脱敏..."):
-            _run_masking(
+        _loading_overlay("正在执行脱敏，生成产物…", "正在按您的勾选替换敏感内容")
+        _run_masking(
                 uploaded_files, dialog_selected, all_results,
                 mode, ner_enabled, irreversible, learn_words,
                 batch_id, batch_name, mask_filenames=mask_filenames,
