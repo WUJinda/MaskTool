@@ -18,11 +18,11 @@
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from mask_tool.core.llm.exceptions import LLMError
 from mask_tool.models.config import LLMConfig
-from mask_tool.models.detection import DetectionResult, DetectionType
+from mask_tool.models.detection import DetectionResult, DetectionType, Location
 
 logger = logging.getLogger("mask_tool")
 
@@ -63,6 +63,39 @@ ADJUDICATE_SCHEMA = {
     "required": ["items"],
 }
 
+# P2：增量检测结构化输出契约（detect_new，source="llm"）
+DETECT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "entities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "type": {
+                        "enum": ["company", "government", "person", "project",
+                                  "subject", "location", "amount", "custom"],
+                    },
+                    "confidence": {
+                        "type": "number", "minimum": 0, "maximum": 1,
+                    },
+                    "reason": {"type": "string"},
+                },
+                "required": ["text", "type"],
+            },
+        }
+    },
+    "required": ["entities"],
+}
+
+# detect_new 置信度封顶：smart 默认 auto 阈值 0.85 之下 → 建议档，
+# 默认流程不自动替换（人工确认勾选后生效）；aggressive 下自动脱敏（符合高召回语义）
+_DETECT_CAP = 0.80
+
+# detect_new 单块送审长度上限（超过按句子边界分块，避免切在实体中间）
+_DETECT_MAX_CHUNK_CHARS = 1500
+
 _SYSTEM_PROMPT = (
     "你是文档脱敏系统的敏感信息复核引擎。系统已用词典/正则/NER 规则"
     "检出候选实体，你需要结合上下文判断每一项是否真的属于需要脱敏的"
@@ -73,6 +106,18 @@ _SYSTEM_PROMPT = (
     "- adjust：确属敏感，但类别或置信度需修正\n"
     "confidence 为你对该判定的把握（0.0~1.0，仅 adjust 时生效）。"
     "type 为最贴切类别（仅 adjust 时生效）。reason 用一句话中文说明依据。"
+    "只输出符合约定 schema 的 JSON，不要输出任何其他文字。"
+)
+
+# P2：增量检测提示词
+_DETECT_SYSTEM_PROMPT = (
+    "你是文档脱敏系统的敏感信息检测引擎。从给定文本中找出所有需要脱敏的"
+    "敏感实体：公司/机构/政府/人名/地名/项目名/标的物/金额/证件号/"
+    "联系方式/邮箱/自定义编号等。要求：\n"
+    "- text 必须是原文中逐字出现的片段（不要改写、概括或翻译）\n"
+    "- 已知实体列表中已检出的无需重复输出\n"
+    "- 行业通用词（如“项目”“合同”“甲方”）不是敏感实体\n"
+    "confidence 为把握（0.0~1.0）。reason 用一句话中文说明依据。"
     "只输出符合约定 schema 的 JSON，不要输出任何其他文字。"
 )
 
@@ -97,6 +142,7 @@ class LLMRunStats:
     items_adjudicated: int = 0  # 获得有效判定的候选数（去重后）
     adjusted: int = 0           # 应用 adjust 的次数
     dropped: int = 0            # 应用 drop 的次数
+    detected: int = 0           # P2：AI 增量检出实体数（source="llm"）
     errors: int = 0             # 调用/解析失败批次数
     elapsed_seconds: float = 0.0
 
@@ -110,6 +156,7 @@ class LLMRunStats:
             "items_adjudicated": self.items_adjudicated,
             "adjusted": self.adjusted,
             "dropped": self.dropped,
+            "detected": self.detected,
             "errors": self.errors,
             "elapsed_seconds": round(self.elapsed_seconds, 3),
         }
@@ -152,6 +199,9 @@ class LLMAdjudicator:
         )
         # (text, source, text_type) -> _Verdict；同一次运行内复用
         self._cache: Dict[Tuple[str, str, str], _Verdict] = {}
+        # P2：段落级检测结果缓存（text -> List[DetectionResult]，
+        # 同一段落在检测面/处理面重复送检时直接复用）
+        self._detect_cache: Dict[str, List[DetectionResult]] = {}
         self._budget_warned = False
         self._error_warned = False
 
@@ -173,10 +223,11 @@ class LLMAdjudicator:
             return results
         self._stats.items_seen += len(results)
 
-        # 待送审：排除 manual；cache 启用时跳过已判定项，按缓存键去重
+        # 待送审：排除 manual/llm（AI 检出结果不做二次复核，避免自证
+        # 循环与重复调用）；cache 启用时跳过已判定项，按缓存键去重
         pending: Dict[Tuple[str, str, str], DetectionResult] = {}
         for r in results:
-            if r.source == "manual":
+            if r.source in ("manual", "llm"):
                 continue
             key = (r.text, r.source, r.text_type.value)
             if self._config.cache and key in self._cache:
@@ -189,11 +240,130 @@ class LLMAdjudicator:
 
         # 应用判定（缓存命中的直接套用）
         for r in results:
-            if r.source == "manual":
+            if r.source in ("manual", "llm"):
                 continue
             verdict = self._cache.get((r.text, r.source, r.text_type.value))
             if verdict is not None:
                 self._apply(r, verdict)
+        return results
+
+    # ------------------------------------------------------------------
+    # P2：增量检测（source="llm"）
+    # ------------------------------------------------------------------
+
+    def detect_new(
+        self,
+        text: str,
+        file_path: str = "",
+        exclude_texts: Optional[Set[str]] = None,
+    ) -> List[DetectionResult]:
+        """段落级增量检测：词典/正则/NER 未覆盖的实体（别名、简称、非正式指代）。
+
+        输出 source="llm" 的 DetectionResult，置信度封顶 0.80：
+        smart 模式下进建议档（默认流程不自动替换，人工确认勾选后生效），
+        aggressive 下自动脱敏（高召回语义）。
+
+        防护：回包 text 必须在原文逐字出现（幻觉防护，masker 精确替换
+        的前提）；排除集（规则已检出的实体）过滤；单块失败降级为空列表。
+
+        Args:
+            text: 待检测段落文本
+            file_path: 来源文件（写入 Location）
+            exclude_texts: 规则引擎已检出的实体文本集（去重用）
+        """
+        if not text or not text.strip():
+            return []
+        exclude = exclude_texts or set()
+
+        # 段落缓存：同文本重复送检直接复用（按当前 file_path 重建 Location）
+        if self._config.cache and text in self._detect_cache:
+            self._stats.cache_hits += 1
+            return [
+                _rebuild_llm_result(r, file_path)
+                for r in self._detect_cache[text]
+            ]
+
+        entities: List[DetectionResult] = []
+        seen: Set[str] = set()
+        for chunk in _split_chunks(text, _DETECT_MAX_CHUNK_CHARS):
+            if self._stats.calls >= self._config.budget_max_calls:
+                self._warn_budget_once()
+                break
+            try:
+                data = self._client.chat_json(
+                    [
+                        {"role": "system", "content": _DETECT_SYSTEM_PROMPT},
+                        {"role": "user", "content": self._detect_user_prompt(
+                            chunk, exclude)},
+                    ],
+                    DETECT_SCHEMA,
+                )
+            except LLMError as exc:
+                self._stats.errors += 1
+                if not self._error_warned:
+                    self._error_warned = True
+                    logger.warning(
+                        "LLM 增量检测不可用，本段跳过（仅警告一次）: %s", exc
+                    )
+                continue
+            self._stats.calls += 1
+            entities.extend(self._collect_entities(
+                data, chunk, file_path, exclude, seen))
+
+        if self._config.cache:
+            self._detect_cache[text] = list(entities)
+        self._stats.detected += len(entities)
+        return entities
+
+    @staticmethod
+    def _detect_user_prompt(chunk: str, exclude: Set[str]) -> str:
+        known = _dumps_compact(sorted(exclude)) if exclude else "[]"
+        return (
+            f"文本：\n{chunk}\n\n已知实体列表（无需重复输出）：{known}\n"
+            "请检测并按约定输出。"
+        )
+
+    @staticmethod
+    def _collect_entities(
+        data: dict,
+        chunk: str,
+        file_path: str,
+        exclude: Set[str],
+        seen: Set[str],
+    ) -> List[DetectionResult]:
+        """校验回包并构造 DetectionResult：幻觉防护 + 枚举校验 + 封顶。"""
+        results: List[DetectionResult] = []
+        raw = data.get("entities")
+        if not isinstance(raw, list):
+            return results
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            t = item.get("text")
+            type_value = item.get("type")
+            if not isinstance(t, str) or not t.strip():
+                continue
+            if type_value not in _VALID_TYPES:
+                continue
+            t = t.strip()
+            # 幻觉防护：必须在原文块中逐字出现（masker 按精确文本替换）
+            idx = chunk.find(t)
+            if idx < 0 or t in exclude or t in seen:
+                continue
+            conf = item.get("confidence")
+            conf = float(conf) if isinstance(conf, (int, float)) else 0.5
+            conf = min(max(conf, 0.0), _DETECT_CAP)  # clamp + 封顶 0.80
+            reason = str(item.get("reason", ""))
+            results.append(DetectionResult(
+                text=t,
+                text_type=DetectionType(type_value),
+                source="llm",
+                confidence=conf,
+                location=Location(file=file_path),
+                context=chunk[max(0, idx - 50):idx + len(t) + 50],
+                llm_reason=f"AI 检出：{reason}" if reason else "AI 检出",
+            ))
+            seen.add(t)
         return results
 
     # ------------------------------------------------------------------
@@ -329,3 +499,37 @@ class LLMAdjudicator:
 def _dumps_compact(obj) -> str:
     import json
     return json.dumps(obj, ensure_ascii=False)
+
+
+def _rebuild_llm_result(r: DetectionResult, file_path: str) -> DetectionResult:
+    """按当前文件路径重建缓存命中的检测结果（Location 换新文件名）。"""
+    return DetectionResult(
+        text=r.text,
+        text_type=r.text_type,
+        source="llm",
+        confidence=r.confidence,
+        location=Location(file=file_path),
+        context=r.context,
+        llm_reason=r.llm_reason,
+    )
+
+
+def _split_chunks(text: str, limit: int) -> List[str]:
+    """超长文本按句子边界分块（块尾就近找句读符截断，避免切在实体中间）。"""
+    if len(text) <= limit:
+        return [text]
+    chunks: List[str] = []
+    start = 0
+    while start < len(text):
+        chunk = text[start:start + limit]
+        if start + limit < len(text):
+            best = max(chunk.rfind(c) for c in "。！？\n；")
+            if best > limit // 2:
+                chunk = chunk[:best + 1]
+        if chunk:
+            chunks.append(chunk)
+            start += len(chunk)
+        else:  # 防御：极端无边界文本按硬限制推进
+            chunks.append(text[start:start + limit])
+            start += limit
+    return chunks

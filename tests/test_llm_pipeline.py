@@ -44,17 +44,56 @@ class FakeLLMClient:
         return True, "ok"
 
 
+class FakeLLMDetectClient:
+    """P2：同时模拟 detect_new（entities）与 adjudicate（items）的假客户端。"""
+
+    instances = []
+
+    def __init__(self, base_url, model, api_key="", timeout=30, session=None):
+        self.base_url = base_url
+        self.model = model
+        self.detect_responses = []      # detect_new 依次弹出
+        self.adjudicate_responses = []  # adjudicate 依次弹出
+        self.detect_calls = 0
+        self.adjudicate_calls = 0
+        FakeLLMDetectClient.instances.append(self)
+
+    def chat_json(self, messages, schema):
+        is_detect = "entities" in schema.get("properties", {})
+        if is_detect:
+            self.detect_calls += 1
+            if self.detect_responses:
+                return {"entities": self.detect_responses.pop(0)}
+            return {"entities": []}
+        self.adjudicate_calls += 1
+        if self.adjudicate_responses:
+            return {"items": self.adjudicate_responses.pop(0)}
+        return {"items": []}
+
+    def health_check(self):
+        return True, "ok"
+
+
 @pytest.fixture(autouse=True)
 def _reset_instances():
     FakeLLMClient.instances = []
+    FakeLLMDetectClient.instances = []
     yield
     FakeLLMClient.instances = []
+    FakeLLMDetectClient.instances = []
 
 
 @pytest.fixture
 def patch_client(monkeypatch):
     monkeypatch.setattr(
         "mask_tool.core.llm.client.OpenAICompatClient", FakeLLMClient
+    )
+
+
+@pytest.fixture
+def patch_detect_client(monkeypatch):
+    monkeypatch.setattr(
+        "mask_tool.core.llm.client.OpenAICompatClient", FakeLLMDetectClient
     )
 
 
@@ -230,3 +269,102 @@ def test_manual_words_not_adjudicated_in_pipeline(tmp_path, patch_client):
     assert "绝密代号" not in masked
     # manual 不产生 LLM 调用；无其他命中 → calls == 0
     assert client.calls == 0
+
+
+# ---------------------------------------------------------------------------
+# P2：role 编排（adjudicator / detector / both）
+# ---------------------------------------------------------------------------
+
+def test_role_detector_finds_new_entity_suggest_tier(tmp_path, patch_detect_client):
+    """role=detector：AI 检出规则未覆盖实体；smart 下 0.80 封顶 → 建议档，
+    默认流程（仅替换 AUTO_MASK）不替换原文。"""
+    cfg = _cfg_with_llm(role="detector")
+    p = _new_pipeline(cfg, tmp_path)
+    client = FakeLLMDetectClient.instances[0]
+    client.detect_responses = [
+        # 词库外实体：只有 LLM 能检出（词典/正则/NER 均不命中）
+        [{"text": "新联置业发展集团", "type": "company", "confidence": 0.9}],
+    ]
+
+    text = "另悉新联置业发展集团亦参与本标段"
+    masked = p.process_text(text)
+    # 0.80 封顶 < smart auto 0.85 → SUGGEST_MASK → 默认不替换
+    assert masked == text
+    assert client.detect_calls == 1 and client.adjudicate_calls == 0
+    assert p.llm_stats.detected == 1
+    # 建议档条目进入报告 suggested 段（source=llm）
+    assert any(e.get("source") == "llm" for e in p.report.suggested)
+
+
+def test_role_detector_aggressive_auto_masks(tmp_path, patch_detect_client):
+    """aggressive（auto 0.70）下 AI 检出 0.80 → AUTO_MASK → 替换。"""
+    cfg = _cfg_with_llm(role="detector")
+    cfg.mode = "aggressive"
+    p = _new_pipeline(cfg, tmp_path)
+    client = FakeLLMDetectClient.instances[0]
+    client.detect_responses = [
+        [{"text": "测试建设集团有限公司", "type": "company", "confidence": 0.9}],
+    ]
+
+    text = "本工程由测试建设集团有限公司承建"
+    masked = p.process_text(text)
+    assert masked != text
+    assert "测试建设集团" not in masked
+
+
+def test_role_adjudicator_skips_detect_new(tmp_path, patch_detect_client):
+    """role=adjudicator（默认）：不做增量检测，只复核。"""
+    cfg = _cfg_with_llm(role="adjudicator")
+    p = _new_pipeline(cfg, tmp_path)
+    client = FakeLLMDetectClient.instances[0]
+    client.adjudicate_responses = [
+        {"items": [{"id": 0, "action": "keep", "reason": "ok"}]},
+    ]
+    p.process_text("测试建设集团有限公司承建")
+    assert client.detect_calls == 0
+    assert client.adjudicate_calls == 1
+    assert p.detector.role == "adjudicator"
+
+
+def test_role_both_detect_and_adjudicate(tmp_path, patch_detect_client):
+    """role=both：先增量检测再复核；llm 检出项不进复核（无自证循环）。"""
+    cfg = _cfg_with_llm(role="both")
+    p = _new_pipeline(cfg, tmp_path)
+    client = FakeLLMDetectClient.instances[0]
+    client.detect_responses = [
+        [{"text": "新检出公司", "type": "company", "confidence": 0.9}],
+    ]
+    # 文本须含 LLM 检出的实体（幻觉防护要求逐字出现）
+    text = "另悉新检出公司也参与投标，测试建设集团有限公司为总包"
+    p.process_text(text)
+    assert client.detect_calls == 1
+    # 复核只收到规则命中（词典 1 项），llm 项跳过 → 仍 1 次复核调用
+    assert client.adjudicate_calls == 1
+
+
+def test_invalid_role_falls_back_to_adjudicator(tmp_path, patch_detect_client, caplog):
+    cfg = _cfg_with_llm(role="wizard")
+    with caplog.at_level("WARNING"):
+        p = _new_pipeline(cfg, tmp_path)
+    assert p.detector.role == "adjudicator"
+    assert any("llm.role 非法" in r.message for r in caplog.records)
+
+
+def test_llm_detected_entity_roundtrip_report_reason(tmp_path, patch_detect_client):
+    """AI 检出条目的 llm_reason 进 report，供人工复核审计。"""
+    cfg = _cfg_with_llm(role="detector")
+    p = _new_pipeline(cfg, tmp_path)
+    client = FakeLLMDetectClient.instances[0]
+    client.detect_responses = [
+        [{"text": "新联置业发展集团", "type": "company",
+          "confidence": 0.9, "reason": "上下文为投标单位"}],
+    ]
+    p.process_text("另悉新联置业发展集团亦参与本标段")
+    report_file = tmp_path / "report.json"
+    p.save_report(report_file)
+    import json as _json
+    data = _json.loads(report_file.read_text(encoding="utf-8"))
+    llm_entries = [e for e in data["suggested"] if e.get("source") == "llm"]
+    assert len(llm_entries) == 1
+    assert llm_entries[0]["llm_reason"].startswith("AI 检出：")
+    assert data["llm_stats"]["detected"] == 1

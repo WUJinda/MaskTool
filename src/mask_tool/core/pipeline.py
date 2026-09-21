@@ -116,7 +116,17 @@ class Pipeline:
                 LLMAdjudicator, LLMRunStats,
             )
             from mask_tool.core.llm.client import OpenAICompatClient
-            from mask_tool.core.llm.detector_wrapper import LLMEnhancedDetector
+            from mask_tool.core.llm.detector_wrapper import (
+                LLMEnhancedDetector, VALID_ROLES,
+            )
+
+            # P2：role 归一化（非法值警告并按 adjudicator 处理）
+            role = (llm_cfg.role or "adjudicator").strip().lower()
+            if role not in VALID_ROLES:
+                logger.warning(
+                    "llm.role 非法: %r，按 adjudicator 处理", llm_cfg.role
+                )
+                role = "adjudicator"
 
             client = OpenAICompatClient(
                 base_url=llm_cfg.base_url,
@@ -127,12 +137,13 @@ class Pipeline:
             stats = LLMRunStats(model=llm_cfg.model, base_url=client.base_url)
             self.llm_stats = stats
             logger.info(
-                "LLM 复核已启用（%s @ %s，预算 %d 次调用，批大小 %d）",
-                llm_cfg.model, client.base_url,
+                "LLM 增强已启用（role=%s，%s @ %s，预算 %d 次调用，批大小 %d）",
+                role, llm_cfg.model, client.base_url,
                 llm_cfg.budget_max_calls, llm_cfg.batch_size,
             )
             return LLMEnhancedDetector(
                 detector, LLMAdjudicator(client, llm_cfg, stats=stats),
+                role=role,
             )
         except Exception as exc:
             self.llm_stats = None

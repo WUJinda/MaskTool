@@ -22,7 +22,7 @@ ner:
 # 仅增强 smart/aggressive 模式（focused 不接入）；关闭时行为与无此段一致
 llm:
   enabled: false
-  role: adjudicator            # adjudicator（复核）/ detector / both（P2 起后两者生效）
+  role: adjudicator            # adjudicator（复核）/ detector（AI 增量检测）/ both
   base_url: ""                 # 如 http://localhost:11434/v1（内网端点）
   model: ""                    # 如 qwen3:8b / 内网服务注册名
   api_key: ""                  # 内网通常留空；空时读环境变量 MASKTOOL_LLM_API_KEY
