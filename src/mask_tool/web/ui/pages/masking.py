@@ -35,7 +35,8 @@ from ..state import (
 # ──────────────────────────────────────────────
 
 def render_steps(current_step: int):
-    """渲染步骤指示器 (1-4；current_step=5 表示全部完成)"""
+    """渲染步骤指示器 (1-4；current_step=5 表示全部完成)：
+    节点连线式（数字圆点 + 渐变连线），卡片化 sticky 顶部"""
     steps = [
         ("1", "📤 上传"),
         ("2", "🔍 检测"),
@@ -46,9 +47,10 @@ def render_steps(current_step: int):
     for i, (num, label) in enumerate(steps):
         step_num = i + 1
         cls = "done" if step_num < current_step else ("active" if step_num == current_step else "pending")
-        step_html += f'<div class="step {cls}">{label}</div>'
+        step_html += f'<span class="step {cls}"><span class="n">{num}</span>{label}</span>'
         if i < len(steps) - 1:
-            step_html += '<span class="step-arrow">→</span>'
+            line_cls = "done" if step_num < current_step else ""
+            step_html += f'<span class="step-line {line_cls}"></span>'
     step_html += '</div>'
     st.markdown(step_html, unsafe_allow_html=True)
 
@@ -117,8 +119,13 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         st.info("已同时上传单文件与目录 zip：本次按目录 zip 处理，单文件列表忽略")
 
     if not uploaded_files:
-        st.info("📤 请上传需要脱敏的文件（支持 .docx / .xlsx）")
-        st.caption("PPT 与 PDF 已暂时停用：检测到 .pptx / .pdf 文件将拒绝处理。")
+        st.markdown(
+            '<div class="notice"><span class="ic">📤</span>'
+            '<div class="tx">请上传需要脱敏的文件（支持 <b>.docx / .xlsx</b>）'
+            '<small>PPT 与 PDF 已暂时停用：检测到 .pptx / .pdf 文件将拒绝处理</small>'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
         return
 
     # 屏蔽策略双保险：uploader 已限类型，此处对绕过途径（API 调用等）给出明确报错

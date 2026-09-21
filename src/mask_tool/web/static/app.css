@@ -156,10 +156,18 @@
 
     /* ── 深色适配补齐（forced）：上传拖拽区/提示条/指标卡/表格/标签页/滚动条 ── */
     html[data-app-theme="dark"] { color-scheme: dark; }
+    /* auto 深色（无 forced）时由 Streamlit 原生接管配色，仅统一圆角 */
+    html[data-app-theme="dark"]:not([data-theme-forced="1"]) [data-testid="stFileUploaderDropzone"] {
+        border-radius: 12px !important;
+    }
     html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stFileUploaderDropzone"] {
         background: rgba(255,255,255,.04) !important;
         border: 1.5px dashed rgba(255,255,255,.22) !important;
-        border-radius: 10px !important;
+        border-radius: 12px !important;
+    }
+    html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stFileUploaderDropzone"]:hover {
+        border-color: #7d8ff0 !important;
+        background: rgba(102,126,234,.1) !important;
     }
     html[data-app-theme="dark"][data-theme-forced="1"] [data-testid="stFileUploaderDropzone"] * {
         background-color: transparent !important; color: #9aa3b5 !important;
@@ -331,15 +339,17 @@
     .step-indicator {
         display: flex;
         align-items: center;
-        gap: 0.35rem;
+        gap: 2px;
         margin-bottom: 0.7rem;
         flex-wrap: wrap;
         position: sticky;
-        top: 0;
+        top: 6px;
         z-index: 60;
         background: #ffffff;
-        padding: 0.45rem 0.15rem;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        padding: 9px 16px;
+        border: 1px solid #e5e8f0;
+        border-radius: 12px;
+        box-shadow: 0 1px 4px rgba(20, 25, 60, 0.05);
     }
     div:has(> .step-indicator),
     div:has(> div > .step-indicator),
@@ -349,23 +359,59 @@
         display: contents;
     }
     html[data-app-theme="dark"] .step-indicator {
-        background: #14161f;
-        border-bottom-color: rgba(255, 255, 255, 0.08);
+        background: #1a1d2e;
+        border-color: rgba(255, 255, 255, 0.08);
+        box-shadow: none;
     }
-    html[data-app-theme="dark"] .step-arrow { color: rgba(255, 255, 255, 0.25); }
     .step {
         display: flex;
         align-items: center;
-        gap: 0.3rem;
-        padding: 0.22rem 0.65rem;
-        border-radius: 999px;
-        font-size: 0.75rem;
+        gap: 6px;
+        font-size: 0.76rem;
         font-weight: 600;
+        white-space: nowrap;
     }
-    .step.active { background: #667eea; color: white; }
-    .step.done { background: #27ae60; color: white; }
-    .step.pending { background: #eee; color: #999; }
-    .step-arrow { color: #ccc; }
+    .step .n {
+        width: 20px; height: 20px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.68rem; font-weight: 700; flex-shrink: 0;
+    }
+    .step.active { color: #4a5bd0; }
+    .step.active .n {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.18);
+    }
+    .step.done { color: #27ae60; }
+    .step.done .n { background: rgba(39, 174, 96, 0.14); color: #27ae60; }
+    .step.pending { color: #9aa3b5; }
+    .step.pending .n { background: rgba(13, 17, 35, 0.06); color: #9aa3b5; }
+    .step-line {
+        flex: 1; height: 2px; border-radius: 1px;
+        background: #e5e8f0; margin: 0 8px; min-width: 14px;
+    }
+    .step-line.done { background: #27ae60; }
+    html[data-app-theme="dark"] .step.active { color: #9fb0ff; }
+    html[data-app-theme="dark"] .step.done { color: #2fbf71; }
+    html[data-app-theme="dark"] .step.done .n { background: rgba(47, 191, 113, 0.18); color: #2fbf71; }
+    html[data-app-theme="dark"] .step.pending .n { background: rgba(255, 255, 255, 0.07); }
+    html[data-app-theme="dark"] .step-line { background: rgba(255, 255, 255, 0.1); }
+    html[data-app-theme="dark"] .step-line.done { background: #2fbf71; }
+
+    /* 上传引导提示条（替代 st.info，品牌紫风格） */
+    .notice {
+        display: flex; align-items: center; gap: 10px;
+        background: rgba(91, 110, 232, 0.08);
+        border: 1px solid rgba(91, 110, 232, 0.18);
+        border-radius: 10px; padding: 10px 14px;
+    }
+    .notice .ic { font-size: 1rem; flex-shrink: 0; }
+    .notice .tx { font-size: 0.8rem; color: #3d4354; line-height: 1.5; }
+    .notice .tx b { color: #4a5bd0; }
+    .notice .tx small { display: block; font-size: 0.7rem; color: #9aa3b5; margin-top: 2px; }
+    html[data-app-theme="dark"] .notice { background: rgba(91, 110, 232, 0.12); border-color: rgba(91, 110, 232, 0.25); }
+    html[data-app-theme="dark"] .notice .tx { color: #c6ccdd; }
+    html[data-app-theme="dark"] .notice .tx b { color: #9fb0ff; }
 
     /* 成功横幅 */
     .success-banner {
@@ -412,15 +458,36 @@
     .up-title b { font-size: 0.85rem; font-weight: 700; color: #1f2430; }
     .up-title span { font-size: 0.72rem; color: #9aa1ad; }
     [data-testid="stFileUploaderDropzone"] {
-        padding: 0.55rem 0.9rem !important;
-        min-height: 3.4rem !important;
+        padding: 1.35rem 0.9rem !important;
+        min-height: 7.2rem !important;
         gap: 0.5rem !important;
+        background: #f7f8fb !important;
+        border: 1.5px dashed #c3c9e8 !important;
+        border-radius: 12px !important;
+        transition: border-color 0.2s, background 0.2s;
+    }
+    html:not([data-app-theme="dark"]) [data-testid="stFileUploaderDropzone"] {
+        background: #f7f8fb !important;
+        border: 1.5px dashed #c3c9e8 !important;
+        transition: border-color 0.2s, background 0.2s;
+    }
+    html:not([data-app-theme="dark"]) [data-testid="stFileUploaderDropzone"]:hover {
+        border-color: #667eea !important;
+        background: rgba(102, 126, 234, 0.06) !important;
     }
     [data-testid="stFileUploaderDropzone"] > div:first-child { margin: 0 !important; }
     [data-testid="stFileUploaderDropzone"] span,
     [data-testid="stFileUploaderDropzone"] button { font-size: 0.8rem !important; }
-    [data-testid="stFileUploaderDropzone"] small { font-size: 0.72rem !important; }
-    [data-testid="stFileUploaderDropzone"] svg { height: 1.2rem !important; width: 1.2rem !important; }
+    html:not([data-app-theme="dark"]) [data-testid="stFileUploaderDropzone"] small { font-size: 0.7rem !important; color: #9aa3b5 !important; }
+    html:not([data-app-theme="dark"]) [data-testid="stFileUploaderDropzone"] svg { height: 1.2rem !important; width: 1.2rem !important; color: #4a5bd0 !important; }
+    html:not([data-app-theme="dark"]) [data-testid="stFileUploaderDropzone"] button {
+        border-radius: 8px !important; border: 1px solid #d9dce6 !important;
+        background: #fff !important; color: #3d4354 !important;
+        font-weight: 600 !important; padding: 0.25rem 0.95rem !important;
+    }
+    html:not([data-app-theme="dark"]) [data-testid="stFileUploaderDropzone"] button:hover {
+        border-color: #667eea !important; color: #4a5bd0 !important;
+    }
 
     /* 已上传文件 chips */
     .filelist { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.3rem 0 0.1rem; }
@@ -621,8 +688,6 @@
     }
     html[data-app-theme="dark"] .sel-count { color: #8a93a5; }
     html[data-app-theme="dark"] .sel-count b { color: #9fb0ff; }
-    html[data-app-theme="dark"] .step.pending { background: rgba(255,255,255,.09); color: #8a93a5; }
-    html[data-app-theme="dark"] .step-arrow { color: #5a6274; }
     html[data-app-theme="dark"] .file-card {
         background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12);
     }
