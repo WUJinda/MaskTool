@@ -99,6 +99,39 @@ def get_llm_test_state() -> Dict[str, object]:
     return dict(lt) if isinstance(lt, dict) else {}
 
 
+# ── 界面偏好（2026-09-21）：运行设置持久化，重启软件后保持上次选择 ──
+
+# 键名与对应 widget 的 session_state key 一致，便于 on_change 回调直接写回。
+# 临时自定义敏感词不入此段（产品语义：仅本次任务生效）。
+UI_PREF_DEFAULTS: Dict[str, object] = {
+    "run_mode": "smart",        # 侧栏运行模式（focused/smart/strict/aggressive）
+    "irreversible": False,      # 不可逆脱敏
+    "learn_words": True,        # 学习新词到词库
+    "llm_enabled": False,       # AI 增强检测开关（端点未就绪时运行时忽略）
+    "mask_filenames": True,     # 同时脱敏文件名
+    "manual_only_mode": False,  # 仅脱敏我指定的词
+}
+
+
+def get_ui_prefs() -> Dict[str, object]:
+    """读取界面偏好段 ui_prefs（与默认值融合，只认白名单键）。"""
+    raw = load_settings().get("ui_prefs")
+    prefs = dict(UI_PREF_DEFAULTS)
+    if isinstance(raw, dict):
+        prefs.update(
+            {k: v for k, v in raw.items() if k in UI_PREF_DEFAULTS}
+        )
+    return prefs
+
+
+def set_ui_prefs(updates: Dict[str, object]) -> bool:
+    """合并写入界面偏好段；失败返回 False（静默降级为会话级，不影响运行）。"""
+    cur = load_settings().get("ui_prefs")
+    cur = dict(cur) if isinstance(cur, dict) else {}
+    cur.update(updates)
+    return save_settings({"ui_prefs": cur})
+
+
 def get_explicit_save_dir() -> str:
     """用户显式设置的保存文件夹（原样字符串）；未设置返回空串。"""
     raw = load_settings().get("save_dir")

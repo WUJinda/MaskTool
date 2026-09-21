@@ -189,17 +189,25 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             unsafe_allow_html=True,
         )
     with mi_cols[1]:
-        # 同时脱敏文件名（仅处理主名，不改扩展名）；副说明由 app.css ::after 注入
+        # 同时脱敏文件名（仅处理主名，不改扩展名）；副说明由 app.css ::after 注入。
+        # 持久化：初值取自配置，on_change 写回（sidebar._persist_pref）
         st.markdown('<div class="mi-right-title">本次任务选项</div>', unsafe_allow_html=True)
+        from ..sidebar import _persist_pref
+        from mask_tool.core.app_settings import get_ui_prefs
+        _prefs = get_ui_prefs()
         mask_filenames = st.checkbox(
             "同时脱敏文件名",
-            value=True,
+            value=bool(_prefs.get("mask_filenames", True)),
             key="mask_filenames",
+            on_change=_persist_pref,
+            args=("mask_filenames",),
         )
         manual_only = st.checkbox(
             "仅脱敏我指定的词",
-            value=False,
+            value=bool(_prefs.get("manual_only_mode")),
             key="manual_only_mode",
+            on_change=_persist_pref,
+            args=("manual_only_mode",),
         )
 
     if st.button("🔍 开始检测", type="primary", width="stretch"):

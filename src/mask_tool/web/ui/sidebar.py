@@ -9,6 +9,12 @@ from .labels import MODE_DESCRIPTIONS
 from .settings_dialog import _render_settings_component
 from .state import _reset_task_state
 
+
+def _persist_pref(key: str):
+    """on_change 回调：把 widget 当前值写入配置文件（重启后保持）。"""
+    from mask_tool.core.app_settings import set_ui_prefs
+    set_ui_prefs({key: st.session_state.get(key)})
+
 # ──────────────────────────────────────────────
 # 侧边栏
 # ──────────────────────────────────────────────
@@ -34,35 +40,49 @@ def render_sidebar():
             _reset_task_state()
             st.rerun()
 
-        # 运行模式（功能分组卡）
+        # 运行模式（功能分组卡）。持久化：初值取自配置文件（首启注入，
+        # 之后由 session_state 保持），on_change 写回配置
+        from mask_tool.core.app_settings import get_ui_prefs
+        _prefs = get_ui_prefs()
+        _MODES = ["focused", "smart", "strict", "aggressive"]
         with st.container(border=True):
             st.markdown('<div class="side-label">运行模式</div>', unsafe_allow_html=True)
+            _init_mode = _prefs.get("run_mode", "smart")
             mode = st.selectbox(
                 "模式",
-                options=["focused", "smart", "strict", "aggressive"],
+                options=_MODES,
                 format_func=lambda x: {
                     "focused": "🎯 精准模式",
                     "smart": "🧠 智能模式（推荐）",
                     "strict": "⛔ 严格模式",
                     "aggressive": "🚀 激进模式",
                 }.get(x, x),
-                index=1,
+                index=_MODES.index(_init_mode) if _init_mode in _MODES else 1,
+                key="run_mode",
+                on_change=_persist_pref,
+                args=("run_mode",),
                 label_visibility="collapsed",
             )
             st.caption(MODE_DESCRIPTIONS.get(mode, ""))
 
-        # 脱敏选项（功能分组卡）。NER 开关已移除（v2.4）：引擎为必选能力，
-        # 恒启用；AI 模型接入后在「设置 → 模型配置」配置端点（P3）。
+        # 脱敏选项（功能分组卡）。持久化同上。NER 开关已移除（v2.4）：
+        # 引擎为必选能力，恒启用；AI 模型接入后在「设置 → 模型配置」配置端点（P3）。
         with st.container(border=True):
             st.markdown('<div class="side-label">脱敏选项</div>', unsafe_allow_html=True)
             irreversible = st.checkbox(
                 "不可逆脱敏",
-                value=False,
+                value=bool(_prefs.get("irreversible")),
+                key="irreversible",
+                on_change=_persist_pref,
+                args=("irreversible",),
                 help="启用后将用 *** 替换敏感信息，无法还原",
             )
             learn_words = st.checkbox(
                 "学习新词到词库",
-                value=True,
+                value=bool(_prefs.get("learn_words", True)),
+                key="learn_words",
+                on_change=_persist_pref,
+                args=("learn_words",),
                 help="确认时标记为'加入词库'的词将写入词库文件",
             )
 
@@ -84,8 +104,11 @@ def render_sidebar():
                          "both": "复核+检测"}.get(str(_llm_cfg.get("role", "adjudicator")), "仅复核")
             llm_enabled = st.checkbox(
                 "AI 增强检测",
-                value=False,
+                # 持久化偏好仅在端点就绪时生效（配置丢失/未配置时不残留开启）
+                value=bool(_prefs.get("llm_enabled")) and _llm_ready,
                 key="llm_enabled",
+                on_change=_persist_pref,
+                args=("llm_enabled",),
                 disabled=not _llm_ready,
                 help=(
                     _base_help + "。当前："

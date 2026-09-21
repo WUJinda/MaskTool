@@ -246,3 +246,34 @@ class TestPickSaveFolder:
     def test_no_window_returns_none(self):
         api = desktop._DesktopApi([])  # 窗口未就绪
         assert api.pick_save_folder() is None
+
+
+# ──────────────────────────────────────────────
+# ui_prefs（2026-09-21 运行设置持久化）
+# ──────────────────────────────────────────────
+
+class TestUiPrefs:
+    def test_defaults_when_missing(self, isolated_settings):
+        prefs = app_settings.get_ui_prefs()
+        assert prefs == app_settings.UI_PREF_DEFAULTS
+
+    def test_roundtrip_and_merge(self, isolated_settings):
+        assert app_settings.set_ui_prefs({"run_mode": "strict"})
+        assert app_settings.get_ui_prefs()["run_mode"] == "strict"
+        # 合并写：其他键保留
+        assert app_settings.set_ui_prefs({"irreversible": True})
+        prefs = app_settings.get_ui_prefs()
+        assert prefs["run_mode"] == "strict"
+        assert prefs["irreversible"] is True
+
+    def test_unknown_keys_ignored_on_read(self, isolated_settings):
+        assert app_settings.save_settings({"ui_prefs": {"evil": 1, "run_mode": "focused"}})
+        prefs = app_settings.get_ui_prefs()
+        assert "evil" not in prefs
+        assert prefs["run_mode"] == "focused"
+
+    def test_other_sections_preserved(self, isolated_settings):
+        assert app_settings.set_theme("dark")
+        assert app_settings.set_ui_prefs({"learn_words": False})
+        assert app_settings.get_theme() == "dark"
+        assert app_settings.get_ui_prefs()["learn_words"] is False
