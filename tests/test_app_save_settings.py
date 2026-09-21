@@ -183,7 +183,12 @@ class TestSavePanel:
         out = tmp_path / "out"
         monkeypatch.setattr(webapp.st, "warning", lambda *a, **k: None)
         monkeypatch.setattr(webapp.st, "caption", lambda *a, **k: None)
-        monkeypatch.setattr(webapp.st, "button", lambda *a, **k: True)  # 模拟点击
+        # 只模拟点击"💾 保存…"按钮：恒 True 会连带触发"📂 打开保存
+        # 文件夹"（os.startfile 弹资源管理器，R9）
+        monkeypatch.setattr(
+            webapp.st, "button",
+            lambda label, *a, **k: str(label).startswith("💾"),
+        )
         successes = []
         monkeypatch.setattr(webapp.st, "success", lambda m, **k: successes.append(str(m)))
         monkeypatch.setattr(webapp.st, "error", lambda m, **k: successes.append("ERR:" + str(m)))
@@ -203,7 +208,10 @@ class TestSavePanel:
         blocker.write_text("file", encoding="utf-8")
         monkeypatch.setattr(webapp.st, "warning", lambda *a, **k: None)
         monkeypatch.setattr(webapp.st, "caption", lambda *a, **k: None)
-        monkeypatch.setattr(webapp.st, "button", lambda *a, **k: True)
+        monkeypatch.setattr(
+            webapp.st, "button",
+            lambda label, *a, **k: str(label).startswith("💾"),
+        )
         errors = []
         monkeypatch.setattr(webapp.st, "error", lambda m, **k: errors.append(str(m)))
         webapp.st.session_state.clear()
