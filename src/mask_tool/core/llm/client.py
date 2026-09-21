@@ -46,6 +46,8 @@ class OpenAICompatClient:
     结果稳定可复现）。
     """
 
+    _proxy_logged = False  # 类级：代理环境只记录一次（全进程共享）
+
     def __init__(
         self,
         base_url: str,
@@ -245,28 +247,62 @@ class OpenAICompatClient:
     def _request(self, method: str, path: str, payload: Optional[dict]):
         """统一 HTTP 入口：网络异常与 5xx 归一化为 LLMUnavailableError；
         4xx 归一化为 LLMError（降级链据此换档）。成功时缓存该档能力。
+        每次请求记录耗时与结果（INFO/WARNING），供日志定位卡顿。
         """
+        import time as _time
         url = f"{self._base}{path}"
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        self._log_proxy_once()
+        t0 = _time.perf_counter()
         try:
             resp = self._session.request(
                 method, url,
                 json=payload, headers=headers, timeout=self._timeout,
             )
         except requests.RequestException as exc:
+            logger.warning(
+                "LLM 请求网络失败 %.1fs（超时=%ds）: %s",
+                _time.perf_counter() - t0, self._timeout, exc,
+            )
             raise LLMUnavailableError(f"LLM 端点请求失败: {exc}") from exc
-        if resp.status_code >= 500:
+        elapsed = _time.perf_counter() - t0
+        code = resp.status_code
+        if code >= 500:
+            logger.warning("LLM 端点服务错误 HTTP %d（%.1fs）", code, elapsed)
             raise LLMUnavailableError(
                 f"LLM 端点服务错误: HTTP {resp.status_code}"
             )
-        if resp.status_code >= 400:
-            # 4xx：当前档位不被支持（含 json_schema/json_object 传参被拒）
+        if code >= 400:
+            # 4xx：当前档位不被支持（含 json_schema/json_object 传参被拒）。
+            # 探测阶段的 400 属预期路径（DEBUG）；鉴权/限流类必须可见（WARNING）
+            log_fn = (logger.warning if code in (401, 403, 429)
+                      else logger.debug)
+            log_fn("LLM 请求被拒 HTTP %d（%.1fs）: %s",
+                   code, elapsed, getattr(resp, "text", "")[:200])
+            detail = getattr(resp, "text", "") or ""
+            hint = f"：{detail[:120]}" if detail else ""
             raise LLMError(
-                f"LLM 端点拒绝请求: HTTP {resp.status_code}（档位可能不支持）"
+                f"LLM 端点拒绝请求: HTTP {resp.status_code}{hint}"
             )
+        logger.info("LLM 请求成功 POST %s → %d（%.1fs）", path, code, elapsed)
         return resp
+
+    @classmethod
+    def _log_proxy_once(cls):
+        """首次请求时记录代理环境（诊断"卡住"类问题的关键线索）。"""
+        import os
+        if cls._proxy_logged:
+            return
+        cls._proxy_logged = True
+        pairs = {k: os.environ.get(k, "")
+                 for k in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+                           "http_proxy", "https_proxy", "no_proxy")}
+        active = {k: v for k, v in pairs.items() if v}
+        if active:
+            logger.info("LLM 请求代理环境: %s（若端点可达但响应缓慢，"
+                        "请检查代理分流/超时规则）", active)
 
     @property
     def capability(self) -> Optional[str]:

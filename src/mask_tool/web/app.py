@@ -27,6 +27,10 @@ mask_tool.web.app.xxx 引用历史符号）。
 
 import streamlit as st
 
+from mask_tool.utils.logger import setup_logger
+
+setup_logger()  # 落盘 ~/.mask-tool/logs/mask-tool.log（桌面版唯一可见日志渠道）
+
 # ──────────────────────────────────────────────
 # 页面配置
 # ──────────────────────────────────────────────

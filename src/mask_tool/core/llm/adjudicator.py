@@ -318,12 +318,15 @@ class LLMAdjudicator:
                 for r in self._detect_cache[text]
             ]
 
+        import time as _time
         entities: List[DetectionResult] = []
         seen: Set[str] = set()
-        for chunk in _split_chunks(text, _DETECT_MAX_CHUNK_CHARS):
+        chunks = _split_chunks(text, _DETECT_MAX_CHUNK_CHARS)
+        for ci, chunk in enumerate(chunks, 1):
             if self._stats.calls >= self._config.budget_max_calls:
                 self._warn_budget_once()
                 break
+            t0 = _time.perf_counter()
             try:
                 data = self._client.chat_json(
                     [
@@ -339,8 +342,14 @@ class LLMAdjudicator:
                 continue
             self._stats.calls += 1
             self._consecutive_errors = 0
+            before = len(entities)
             entities.extend(self._collect_entities(
                 data, chunk, file_path, exclude, seen))
+            logger.info(
+                "AI 增量检测块 %d/%d（%d 字符）→ 检出 %d 个新实体（%.1fs）",
+                ci, len(chunks), len(chunk), len(entities) - before,
+                _time.perf_counter() - t0,
+            )
 
         if self._config.cache:
             self._detect_cache[text] = list(entities)
@@ -408,13 +417,16 @@ class LLMAdjudicator:
         self, pending: Dict[Tuple[str, str, str], DetectionResult],
     ) -> None:
         """分批送审并把有效判定写入缓存；预算与错误在此降级。"""
+        import time as _time
         batch_size = max(1, self._config.batch_size)
         items = list(pending.items())
-        for start in range(0, len(items), batch_size):
+        total_batches = (len(items) + batch_size - 1) // batch_size
+        for bi, start in enumerate(range(0, len(items), batch_size), 1):
             batch = items[start:start + batch_size]
             if self._stats.calls >= self._config.budget_max_calls:
                 self._warn_budget_once()
                 return
+            t0 = _time.perf_counter()
             try:
                 verdicts = self._ask_llm(batch)
             except LLMError as exc:
@@ -426,6 +438,15 @@ class LLMAdjudicator:
             for key, verdict in verdicts.items():
                 self._cache[key] = verdict
                 self._stats.items_adjudicated += 1
+            dist = {"keep": 0, "drop": 0, "adjust": 0}
+            for v in verdicts.values():
+                dist[v.action] = dist.get(v.action, 0) + 1
+            logger.info(
+                "AI 复核批次 %d/%d（%d 项）→ keep=%d drop=%d adjust=%d"
+                "（%.1fs）", bi, total_batches, len(batch),
+                dist.get("keep", 0), dist.get("drop", 0),
+                dist.get("adjust", 0), _time.perf_counter() - t0,
+            )
 
     def _ask_llm(
         self, batch: List[Tuple[Tuple[str, str, str], DetectionResult]],
@@ -542,8 +563,9 @@ class LLMAdjudicator:
         if self._consecutive_errors >= 3 and not self._tripped:
             self._tripped = True
             logger.warning(
-                "LLM 连续 %d 次调用失败，本次运行剩余部分降级为纯规则模式",
-                self._consecutive_errors,
+                "LLM 连续 %d 次调用失败（首错: %s），本次运行剩余部分"
+                "降级为纯规则模式",
+                self._consecutive_errors, self._stats.first_error,
             )
         return self._tripped
 
@@ -605,6 +627,9 @@ def friendly_error(msg: str) -> str:
     if "401" in text or "403" in text or "unauthorized" in low or "forbidden" in low:
         return "HTTP 401/403——API Key 无效或无权限，请检查密钥"
     if "429" in text:
+        if "余额" in text or "资源包" in text:
+            return ("HTTP 429——账户余额不足或资源包用尽，"
+                    "请到模型服务商控制台充值后重试")
         return "HTTP 429——触发服务端限流，稍后重试或调小 batch_size"
     if "timeout" in low or "timed out" in low:
         return "请求超时——端点不可达或响应过慢，检查地址/网络/超时设置"

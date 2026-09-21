@@ -43,6 +43,9 @@ app = typer.Typer(
 )
 console = Console()
 
+from mask_tool.utils.logger import setup_logger as _setup_logger
+_setup_logger()  # CLI 侧同样落盘（幂等）：~/.mask-tool/logs/mask-tool.log
+
 
 # ---------------------------------------------------------------------------
 # 配置加载（H5 回退链 + N2 自动复制；R1-B6：公共实现 core/config_loader.py，

@@ -269,3 +269,10 @@ def test_first_error_recorded_once():
     assert "OpenAI 兼容端点" in adj.stats.first_error   # 友好化 + 只记首条
     d = adj.stats.to_dict()
     assert "first_error" in d
+
+
+def test_friendly_error_balance():
+    from mask_tool.core.llm.adjudicator import friendly_error
+    assert "余额不足" in friendly_error(
+        "HTTP 429：{\"error\":{\"code\":\"1113\",\"message\":\"余额不足或无可用资源包\"}}")
+    assert "限流" in friendly_error("HTTP 429: too many requests")

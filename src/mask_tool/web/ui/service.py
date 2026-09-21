@@ -12,6 +12,8 @@ from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import logging
+
 import streamlit as st
 import yaml
 
@@ -49,6 +51,13 @@ def _snapshot_llm_summary() -> None:
         st.session_state.pop("_llm_run_summary", None)
         return
     s = pipeline.llm_stats
+    logging.getLogger("mask_tool").info(
+        "AI 增强统计：calls=%d errors=%d 复核=%d(drop=%d,adjust=%d) "
+        "检出=%d 缓存命中=%d 耗时=%.1fs 首错=%s",
+        s.calls, s.errors, s.items_adjudicated, s.dropped, s.adjusted,
+        s.detected, s.cache_hits, s.elapsed_seconds,
+        s.first_error or "(无)",
+    )
     ok = s.calls > 0 and not (s.errors and s.calls == 0)
     st.session_state["_llm_run_summary"] = {
         **s.to_dict(),
