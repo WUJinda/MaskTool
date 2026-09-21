@@ -274,6 +274,13 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-dialog { background: #2326
 html[data-app-theme="dark"] #mt-settings-root .mt-sub-title { color: #e8eaf2; }
 #mt-settings-root .mt-sub-field { margin-bottom: .75rem; }
 #mt-settings-root .mt-sub-field label { display: block; font-size: .76rem; font-weight: 700; color: rgba(43,48,64,.72); margin-bottom: .3rem; }
+#mt-settings-root .mt-fmt-hint {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; margin-left: 4px; border-radius: 50%;
+  background: rgba(25,26,46,.07); color: #8a93a5;
+  font-size: 10px; font-weight: 800; cursor: help; vertical-align: 1px;
+}
+#mt-settings-root .mt-fmt-hint:hover { background: rgba(91,110,232,.15); color: #4a5bd0; }
 html[data-app-theme="dark"] #mt-settings-root .mt-sub-field label { color: #aab2c5; }
 #mt-settings-root .mt-sub-field .ctrl {
   width: 100%; height: 2rem; border-radius: 7px; padding: 0 .6rem; font-size: .82rem; outline: none;
@@ -387,10 +394,10 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
             <div class="mt-pane-title">模型配置</div>
             <div class="mt-set-card">
               <div class="mt-card-title">💻 AI 增强检测（内网大模型）</div>
-              <div class="mt-card-sub">必须为 <b>OpenAI 兼容端点</b>（以 /v1、/v4 等版本段结尾）。示例：http://localhost:11434/v1（Ollama）· http://内网IP:8000/v1（vLLM）· https://open.bigmodel.cn/api/paas/v4（智谱）。⚠️ Anthropic 专用地址（/api/anthropic）不适用。保存后在侧栏「AI 增强检测」开关启用；仅智能/激进模式生效。</div>
+              <div class="mt-card-sub">接入 OpenAI 兼容端点；保存后在侧栏「AI 增强检测」开关启用。</div>
               <div class="mt-sub-field">
-                <label>服务地址（Base URL）</label>
-                <input class="ctrl" id="mt-llm-url" placeholder="http://localhost:11434/v1 · http://内网IP:8000/v1 · https://open.bigmodel.cn/api/paas/v4">
+                <label>服务地址（Base URL）<span class="mt-fmt-hint" title="以版本段结尾，如 /v1 或 /v4。示例：Ollama http://localhost:11434/v1 · vLLM http://内网IP:8000/v1 · 智谱 https://open.bigmodel.cn/api/paas/v4。⚠️ Anthropic 专用地址（/api/anthropic）不适用。">?</span></label>
+                <input class="ctrl" id="mt-llm-url" placeholder="如 http://192.168.1.10:11434/v1">
               </div>
               <div class="mt-sub-field">
                 <label>模型名称</label>
@@ -417,7 +424,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
                 <span id="mt-llm-status" style="font-size:.74rem;color:#8a93a5"></span>
               </div>
             </div>
-            <div class="mt-csv-note">💡 隐私说明：启用后仅把待复核的候选片段（前后各 50 字上下文）发送至上述端点，建议部署在内网或本机 Ollama；关闭侧栏开关即恢复纯规则模式，检测/替换/还原链路不受影响。</div>
+            <div class="mt-csv-note">💡 隐私：仅发送待复核片段（前后各 50 字上下文）至上述端点，建议内网或本机部署。</div>
           </section>
         </div>
       </div>

@@ -76,21 +76,26 @@ def render_sidebar():
             st.markdown(
                 '<div class="side-label">AI 增强</div>', unsafe_allow_html=True
             )
+            _base_help = (
+                "启用后由内网大模型复核误报 / 补充检测词库未覆盖的实体；"
+                "仅智能/激进模式生效，关闭即恢复纯规则模式"
+            )
+            _role_cn = {"adjudicator": "仅复核", "detector": "仅补充检测",
+                         "both": "复核+检测"}.get(str(_llm_cfg.get("role", "adjudicator")), "仅复核")
             llm_enabled = st.checkbox(
                 "AI 增强检测",
                 value=False,
                 key="llm_enabled",
                 disabled=not _llm_ready,
                 help=(
-                    "启用后由内网大模型复核误报 / 补充检测词库未覆盖的实体；"
-                    "仅智能/激进模式生效，关闭即恢复纯规则模式"
+                    _base_help + "。当前："
+                    f"{_llm_cfg.get('model', '')}（{_role_cn}）"
+                    "；测试状态可在 设置 → 模型配置 → 测试连接 查看"
                     if _llm_ready else
                     "请先在「设置 → 模型配置」配置内网模型端点后启用"
                 ),
             )
             if _llm_ready:
-                _role = {"adjudicator": "仅复核", "detector": "仅补充检测",
-                         "both": "复核+检测"}.get(str(_llm_cfg.get("role", "adjudicator")), "仅复核")
                 _health = st.session_state.get("llm_health")
                 if not _health:
                     # 本次会话未测过：回退持久化连通状态（配置指纹匹配才有效，
@@ -108,12 +113,10 @@ def render_sidebar():
                 elif _health:
                     _badge = "🔴 " + str(_health.get("msg", "未连通"))[:24]
                 else:
-                    _badge = "⚪ 未测试（设置 → 模型配置 → 测试连接）"
-                st.caption(
-                    f"{_llm_cfg.get('model', '')} · {_role} · {_badge}"
-                )
+                    _badge = "⚪ 未测试"
+                st.caption(_badge)
             else:
-                st.caption("未配置模型端点：⚙️ 设置 → 模型配置")
+                st.caption("未配置模型端点")
 
         # 设置弹窗由自定义组件注入（侧栏底部图标按钮 + 弹窗 UI，与原型一致）
         _render_settings_component()
