@@ -323,14 +323,36 @@
         line-height: 1 !important;
     }
 
-    /* 步骤指示器（紧凑） */
+    /* 步骤指示器（紧凑；固定顶部，下滑始终可见）。
+       注：sticky 只能在父容器范围内粘住，而步骤条外有 5 层包裹
+       （stMarkdown/stElementContainer 等）高度仅等于步骤条本身。
+       用锚定 .step-indicator 的级联 :has 把这些层全部 contents 化，
+       使 sticky 包含块升级为整页内容列（stVerticalBlock）。 */
     .step-indicator {
         display: flex;
         align-items: center;
         gap: 0.35rem;
         margin-bottom: 0.7rem;
         flex-wrap: wrap;
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        background: #ffffff;
+        padding: 0.45rem 0.15rem;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     }
+    div:has(> .step-indicator),
+    div:has(> div > .step-indicator),
+    div:has(> div > div > .step-indicator),
+    div:has(> div > div > div > .step-indicator),
+    div:has(> div > div > div > div > .step-indicator) {
+        display: contents;
+    }
+    html[data-app-theme="dark"] .step-indicator {
+        background: #14161f;
+        border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+    html[data-app-theme="dark"] .step-arrow { color: rgba(255, 255, 255, 0.25); }
     .step {
         display: flex;
         align-items: center;

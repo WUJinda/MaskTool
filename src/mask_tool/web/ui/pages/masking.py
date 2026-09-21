@@ -35,7 +35,7 @@ from ..state import (
 # ──────────────────────────────────────────────
 
 def render_steps(current_step: int):
-    """渲染步骤指示器 (1-4)"""
+    """渲染步骤指示器 (1-4；current_step=5 表示全部完成)"""
     steps = [
         ("1", "📤 上传"),
         ("2", "🔍 检测"),
@@ -53,6 +53,19 @@ def render_steps(current_step: int):
     st.markdown(step_html, unsafe_allow_html=True)
 
 
+def _current_flow_step() -> int:
+    """全局流程步骤（顶部固定步骤条的状态源）。
+
+    由会话状态推导而非渲染位置（页面各区同轮全部渲染，位置无法表征进度）：
+      1 = 待上传；3 = 检测完成、确认选择中；5 = 已执行完成（结果页）。
+    """
+    if "mask_result" in st.session_state:
+        return 5
+    if st.session_state.get("detection_results") is not None:
+        return 3
+    return 1
+
+
 # ──────────────────────────────────────────────
 # 标签页1：脱敏处理
 # ──────────────────────────────────────────────
@@ -65,8 +78,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         _render_mask_result()
         return
 
-    # ── Step 1: 文件上传 ──
-    render_steps(1)
+    # ── Step 1: 文件上传 ──（唯一步骤条：固定顶部，下滑始终可见）
+    render_steps(_current_flow_step())
 
     # 上传区并排：左单文件 / 右目录 zip（压缩纵向占用，比例 1.35:1）
     up_cols = st.columns([1.35, 1])
@@ -131,7 +144,6 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
 
     # ── Step 2: 检测分析 ──
     st.markdown("---")
-    render_steps(2)
 
     # 输入区双栏：左 = 临时敏感词输入（加高）；右 = 本次任务选项（2.3 比例优化）
     mi_cols = st.columns([1, 0.42])
@@ -246,7 +258,6 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
 
     # ── Step 3: 确认选择 ──
     st.markdown("---")
-    render_steps(3)
 
     # 初始化选择状态
     if "user_selections" not in st.session_state:
@@ -447,9 +458,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         if changed:
             st.rerun()
 
-    # ── Step 4: 执行脱敏 ──
-    st.markdown("---")
-    render_steps(4)
+    # ── Step 4: 执行脱敏 ──（步骤条已固定在顶部，此处不再重复）
 
     # 待确认的项：不在主页展示“即将脱敏”预览（R7），改为点击“执行脱敏”
     # 后在确认对话框中逐项勾选终审，表格勾选与预览的联动随之取消
