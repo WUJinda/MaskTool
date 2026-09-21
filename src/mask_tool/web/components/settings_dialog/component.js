@@ -4,6 +4,7 @@
  * Python → JS（每轮 render 经 component.data 下发 payload）：
  *   { lexicon: [{cat,label,icon,words[]}], theme: 'auto|light|dark',
  *     save_dir, save_dir_default, save_dir_explicit: bool,
+ *     llm: {base_url, model, role, api_key_set: bool},
  *     flash: {level:'ok|err', text} | null }
  * JS → Python（component.setTriggerValue('event', json) → trigger 变化自动
  * rerun → _handle_settings_event(ev) 消费，_ts 时间戳去重）：
@@ -11,6 +12,8 @@
  *   | {action:'reset_dir'} | {action:'open_folder'}
  *   | {action:'create_category', name} | {action:'add_words', cat, words[]}
  *   | {action:'export_csv'} | {action:'import_csv', text}
+ *   | {action:'save_llm', base_url, model, api_key, role}   ← P3 模型配置
+ *   | {action:'test_llm', base_url, model, api_key}
  *
  * ── 运行环境 ─────────────────────────────────────────────────────────
  * components.v2 的 JS 运行在主文档（非沙箱），可直接操作侧栏/页面 DOM：
@@ -64,7 +67,7 @@ function boot(B) {
 
   /* ── 样式（作用域限定 #mt-settings-root / #mt-settings-entry，与原型一致） ── */
   var CSS = `
-#mt-settings-entry { margin-top: auto; }
+#mt-settings-entry { position: fixed; left: 13px; bottom: 13px; z-index: 300; }
 #mt-settings-entry .mt-settings-icon {
   width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
   background: rgba(25,26,46,.045); border: 1px solid rgba(25,26,46,.1);
@@ -289,7 +292,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
           <div class="mt-dlg-title">⚙️ 设置</div>
           <button class="mt-nav-item active" data-pane="basic"><span class="ic">🧩</span>基本设置</button>
           <button class="mt-nav-item" data-pane="lexicon"><span class="ic">📖</span>词库管理</button>
-          <button class="mt-nav-item" data-pane="model"><span class="ic">🤖</span>模型配置<span class="soon">即将推出</span></button>
+          <button class="mt-nav-item" data-pane="model"><span class="ic">🤖</span>模型配置</button>
         </nav>
         <div class="mt-dlg-body">
           <button class="mt-dlg-close" id="mt-close" title="关闭">✕</button>
@@ -342,11 +345,36 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
 
           <section class="mt-pane" id="mt-pane-model">
             <div class="mt-pane-title">模型配置</div>
-            <div class="mt-empty-state">
-              <div class="emoji">🤖</div>
-              <div class="t">模型配置即将推出</div>
-              <div class="d">如未配置 AI 模型，则默认使用 jieba NER 引擎进行敏感词识别</div>
+            <div class="mt-set-card">
+              <div class="mt-card-title">🤖 AI 增强检测（内网大模型）</div>
+              <div class="mt-card-sub">接入 OpenAI 兼容内网端点（Ollama / vLLM / Xinference / One-API 网关）。保存后在侧栏「AI 增强检测」开关启用；仅智能/激进模式生效。</div>
+              <div class="mt-sub-field">
+                <label>服务地址（Base URL）</label>
+                <input class="ctrl" id="mt-llm-url" placeholder="如 http://192.168.1.10:11434/v1">
+              </div>
+              <div class="mt-sub-field">
+                <label>模型名称</label>
+                <input class="ctrl" id="mt-llm-model" placeholder="如 qwen3:8b">
+              </div>
+              <div class="mt-sub-field">
+                <label>API Key（内网通常留空）</label>
+                <input class="ctrl" id="mt-llm-key" type="password" placeholder="可选；也可用环境变量 MASKTOOL_LLM_API_KEY">
+              </div>
+              <div class="mt-sub-field">
+                <label>使用方式</label>
+                <div class="mt-seg" id="mt-llm-role">
+                  <button data-role="adjudicator" class="active">🛡️ 仅复核误报</button>
+                  <button data-role="detector">🔎 仅补充检测</button>
+                  <button data-role="both">⚡ 复核+检测</button>
+                </div>
+              </div>
+              <div style="display:flex;gap:.55rem;margin-top:.7rem;align-items:center;flex-wrap:wrap">
+                <button class="mt-ok-btn" id="mt-llm-save">保存配置</button>
+                <button class="mt-ghost-btn" id="mt-llm-test">🔌 测试连接</button>
+                <span id="mt-llm-status" style="font-size:.74rem;color:#8a93a5"></span>
+              </div>
             </div>
+            <div class="mt-csv-note">💡 隐私说明：启用后仅把待复核的候选片段（前后各 50 字上下文）发送至上述端点，建议部署在内网或本机 Ollama；关闭侧栏开关即恢复纯规则模式，检测/替换/还原链路不受影响。</div>
           </section>
         </div>
       </div>
@@ -595,6 +623,40 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
     this.value = '';
   });
 
+  /* ── 模型配置（P3）── */
+  function llmRole() {
+    var active = q('mt-llm-role') && q('mt-llm-role').querySelector('button.active');
+    return active ? active.dataset.role : 'adjudicator';
+  }
+  doc.querySelectorAll('#mt-llm-role button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      doc.querySelectorAll('#mt-llm-role button').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+    });
+  });
+  function llmForm() {
+    return {
+      base_url: q('mt-llm-url').value.trim(),
+      model: q('mt-llm-model').value.trim(),
+      api_key: q('mt-llm-key').value,
+      role: llmRole(),
+    };
+  }
+  bindOnce('mt-llm-save', 'click', function () {
+    var f = llmForm();
+    if (!f.model) { toast('请填写模型名称', true); return; }
+    sendEvent({ action: 'save_llm', base_url: f.base_url, model: f.model,
+                api_key: f.api_key, role: f.role });
+    toast('正在保存模型配置…');
+  });
+  bindOnce('mt-llm-test', 'click', function () {
+    var f = llmForm();
+    if (!f.base_url || !f.model) { toast('请先填写服务地址与模型名称', true); return; }
+    q('mt-llm-status').textContent = '测试中…';
+    sendEvent({ action: 'test_llm', base_url: f.base_url, model: f.model,
+                api_key: f.api_key });
+  });
+
   /* ── 数据刷新入口（组件每轮 render 调用；ARGS 引用替换为新 payload） ── */
   B.onData = function (args) {
     ARGS = args || {};
@@ -607,7 +669,26 @@ html[data-app-theme="dark"] #mt-settings-root .mt-sub-field .ctrl { background: 
     q('mt-save-path').title = q('mt-save-path').textContent;
     if (doc.activeElement !== q('mt-manual-path')) q('mt-manual-path').value = '';
     q('mt-reset-dir').disabled = !ARGS.save_dir_explicit;
-    if (ARGS.flash && ARGS.flash.text) toast(ARGS.flash.text, ARGS.flash.level === 'err');
+    /* P3：模型配置回填（输入焦点中的字段不覆盖；api_key 仅回显已设置状态） */
+    var llm = ARGS.llm || {};
+    ['mt-llm-url', 'mt-llm-model'].forEach(function (id) {
+      var el = q(id);
+      if (el && doc.activeElement !== el) el.value = llm[id === 'mt-llm-url' ? 'base_url' : 'model'] || '';
+    });
+    var keyEl = q('mt-llm-key');
+    if (keyEl && doc.activeElement !== keyEl) {
+      keyEl.value = '';
+      keyEl.placeholder = llm.api_key_set ? '已设置（输入新值可覆盖）' : '可选；也可用环境变量 MASKTOOL_LLM_API_KEY';
+    }
+    doc.querySelectorAll('#mt-llm-role button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.role === (llm.role || 'adjudicator'));
+    });
+    if (ARGS.flash && ARGS.flash.text) {
+      q('mt-llm-status').textContent = ARGS.flash.text;
+      toast(ARGS.flash.text, ARGS.flash.level === 'err');
+    } else {
+      q('mt-llm-status').textContent = '';
+    }
     /* rerun 后侧栏容器可能被重建：顺带做一次幂等检查（正常路径早退，零成本） */
     ensureSettingsButton();
   };

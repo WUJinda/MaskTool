@@ -208,9 +208,9 @@
     [data-testid="stSidebar"] [data-testid="stSidebarContent"],
     [data-testid="stSidebar"] > div { padding-top: 0 !important; }
 
-    /* 侧栏内容撑满高度：注入的设置图标按钮（#mt-settings-entry）贴底 */
+    /* 侧栏内容留出固定按钮高度，避免末尾卡片被遮挡 */
     [data-testid="stSidebar"] > div > [data-testid="stVerticalBlock"] {
-        min-height: calc(100vh - 0.9rem);
+        padding-bottom: 52px;
     }
 
     /* ── 侧边栏：紧凑化（2.3 UI 重构）── */

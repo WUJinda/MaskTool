@@ -38,7 +38,7 @@ def render_sidebar():
         with st.container(border=True):
             st.markdown('<div class="side-label">运行模式</div>', unsafe_allow_html=True)
             mode = st.selectbox(
-                "选择模式",
+                "模式",
                 options=["focused", "smart", "strict", "aggressive"],
                 format_func=lambda x: {
                     "focused": "🎯 精准模式",
@@ -47,14 +47,12 @@ def render_sidebar():
                     "aggressive": "🚀 激进模式",
                 }.get(x, x),
                 index=1,
-                help=("运行模式决定自动脱敏的激进程度：精准=仅词典高置信命中；"
-                      "智能=自动与建议平衡（推荐）；严格=高中置信度分级处理；"
-                      "激进=尽可能多脱敏，适合 AI 预处理"),
+                label_visibility="collapsed",
             )
             st.caption(MODE_DESCRIPTIONS.get(mode, ""))
 
         # 脱敏选项（功能分组卡）。NER 开关已移除（v2.4）：引擎为必选能力，
-        # 恒启用；后续 AI 模型接入后在「设置 → 模型配置」中可选。
+        # 恒启用；AI 模型接入后在「设置 → 模型配置」配置端点（P3）。
         with st.container(border=True):
             st.markdown('<div class="side-label">脱敏选项</div>', unsafe_allow_html=True)
             irreversible = st.checkbox(
@@ -67,6 +65,44 @@ def render_sidebar():
                 value=True,
                 help="确认时标记为'加入词库'的词将写入词库文件",
             )
+
+        # AI 增强检测（P3）：端点在「设置 → 模型配置」维护，此处仅运行开关；
+        # 端点未配置时禁用开关并引导去设置。开关为会话级（widget 状态跨
+        # 任务保留，与不可逆/学习新词一致）
+        from mask_tool.core.app_settings import get_llm_settings
+        _llm_cfg = get_llm_settings()
+        _llm_ready = bool(_llm_cfg.get("base_url") and _llm_cfg.get("model"))
+        with st.container(border=True):
+            st.markdown(
+                '<div class="side-label">AI 增强</div>', unsafe_allow_html=True
+            )
+            llm_enabled = st.checkbox(
+                "AI 增强检测",
+                value=False,
+                key="llm_enabled",
+                disabled=not _llm_ready,
+                help=(
+                    "启用后由内网大模型复核误报 / 补充检测词库未覆盖的实体；"
+                    "仅智能/激进模式生效，关闭即恢复纯规则模式"
+                    if _llm_ready else
+                    "请先在「设置 → 模型配置」配置内网模型端点后启用"
+                ),
+            )
+            if _llm_ready:
+                _role = {"adjudicator": "仅复核", "detector": "仅补充检测",
+                         "both": "复核+检测"}.get(str(_llm_cfg.get("role", "adjudicator")), "仅复核")
+                _health = st.session_state.get("llm_health") or {}
+                if _health.get("ok"):
+                    _badge = "🟢 已连通"
+                elif _health:
+                    _badge = "🔴 " + str(_health.get("msg", "未连通"))[:24]
+                else:
+                    _badge = "⚪ 未测试（设置 → 模型配置 → 测试连接）"
+                st.caption(
+                    f"{_llm_cfg.get('model', '')} · {_role} · {_badge}"
+                )
+            else:
+                st.caption("未配置模型端点：⚙️ 设置 → 模型配置")
 
         # 设置弹窗由自定义组件注入（侧栏底部图标按钮 + 弹窗 UI，与原型一致）
         _render_settings_component()
