@@ -11,7 +11,7 @@
  *   data-baseweb="popover|select" / ul[role="listbox"]
  * 自有命名空间（不受 Streamlit 升级影响）：
  *   .side-head .side-label .lex-chip .file-card .up-title .fchip .badge
- *   .stat .statbar .step .step-arrow .main-head .mi-label 等
+ *  .step .step-arrow .ov .ov-breakdown .main-head .mi-label 等
  * ============================================================ */
 
     /* 整体（注：Streamlit 根为 .stApp class；旧代码误用 stApp 元素选择器从未生效） */
@@ -442,18 +442,38 @@
         border-radius: 999px; background: #eef0fe; color: #4a5bd0;
     }
 
-    /* 紧凑统计条（代替 4 张大卡片） */
-    .statbar { display: flex; gap: 0.55rem; margin: 0.45rem 0 0.4rem; }
-    .stat {
-        flex: 1; background: #fff; border: 1px solid #e5e7eb; border-radius: 9px;
-        padding: 0.4rem 0.85rem; display: flex; align-items: baseline; gap: 0.55rem;
-        box-shadow: 0 1px 2px rgba(20,25,60,.04);
+    /* 检测结果概览：三段式（总数｜处置分布｜类别数量条） */
+    .ov {
+        display: flex; align-items: center; gap: 1.3rem;
+        background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+        padding: 0.9rem 1.4rem; margin: 0.45rem 0 0.5rem;
     }
-    .stat .v { font-size: 1.25rem; font-weight: 800; color: #1f2430; }
-    .stat .k { font-size: 0.75rem; color: #6b7280; }
-    .stat.s-auto .v { color: #1e9e5a; }
-    .stat.s-sugg .v { color: #c07f0a; }
-    .stat.s-hint .v { color: #8a90a0; }
+    .ov-total { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .ov-total .n { font-size: 2.3rem; font-weight: 800; color: #5b6ee8; line-height: 1; }
+    .ov-total .t { font-size: 0.8rem; color: #5a616e; }
+    .ov-sep { width: 1px; align-self: stretch; background: #d9dce6; flex-shrink: 0; }
+    .ov-breakdown { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; }
+    .ov-item { display: flex; align-items: center; gap: 7px; font-size: 0.85rem; color: #3d4354; }
+    .ov-item b { font-size: 1.05rem; font-weight: 700; min-width: 14px; text-align: right; }
+    .ov-item.auto b { color: #1e9e5a; }
+    .ov-item.sugg b { color: #c07f0a; }
+    .ov-item.hint b { color: #8a90a0; }
+    .ov-cats { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .ov-bar-row { display: flex; align-items: center; gap: 8px; }
+    .ov-bar-label {
+        width: 6rem; flex-shrink: 0; font-size: 0.76rem; color: #3d4354;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ov-bar-track { flex: 1; height: 14px; border-radius: 4px; background: rgba(13,17,35,.05); }
+    .ov-bar-fill {
+        height: 100%; border-radius: 4px; min-width: 3px;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+    }
+    .ov-bar-num { font-size: 0.72rem; font-weight: 700; color: #5a616e; min-width: 12px; text-align: right; }
+    @media (max-width: 680px) {
+        .ov { flex-wrap: wrap; }
+        .ov-sep { display: none; }
+    }
 
     /* 批量按钮组分隔线 */
     .col-sep { width: 1px; height: 1.2rem; background: #e3e6ee; margin: 0.35rem auto 0; }
@@ -497,15 +517,17 @@
     html[data-app-theme="dark"] .fchip .fn { color: #dfe3ee; }
     html[data-app-theme="dark"] .fchip .fs { color: #8a93a5; }
     html[data-app-theme="dark"] .badge { background: rgba(91,110,232,.25); color: #9fb0ff; }
-    html[data-app-theme="dark"] .stat {
-        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.11);
-        box-shadow: none;
-    }
-    html[data-app-theme="dark"] .stat .v { color: #e8eaf2; }
-    html[data-app-theme="dark"] .stat .k { color: #9aa3b5; }
-    html[data-app-theme="dark"] .stat.s-auto .v { color: #2fbf71; }
-    html[data-app-theme="dark"] .stat.s-sugg .v { color: #e0a13e; }
-    html[data-app-theme="dark"] .stat.s-hint .v { color: #8a93a5; }
+    html[data-app-theme="dark"] .ov { background: #1a1d2e; border-color: rgba(255,255,255,.08); }
+    html[data-app-theme="dark"] .ov-total .n { color: #7d8ff0; }
+    html[data-app-theme="dark"] .ov-total .t { color: #9aa3b5; }
+    html[data-app-theme="dark"] .ov-sep { background: rgba(255,255,255,.12); }
+    html[data-app-theme="dark"] .ov-item { color: #c6ccdd; }
+    html[data-app-theme="dark"] .ov-item.auto b { color: #2fbf71; }
+    html[data-app-theme="dark"] .ov-item.sugg b { color: #e0a13e; }
+    html[data-app-theme="dark"] .ov-item.hint b { color: #8a93a5; }
+    html[data-app-theme="dark"] .ov-bar-label { color: #c6ccdd; }
+    html[data-app-theme="dark"] .ov-bar-track { background: rgba(255,255,255,.07); }
+    html[data-app-theme="dark"] .ov-bar-num { color: #c6ccdd; }
     html[data-app-theme="dark"] .col-sep { background: rgba(255,255,255,.16); }
     html[data-app-theme="dark"] .step.pending { background: rgba(255,255,255,.09); color: #8a93a5; }
     html[data-app-theme="dark"] .step-arrow { color: #5a6274; }

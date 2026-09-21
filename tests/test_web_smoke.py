@@ -83,7 +83,7 @@ class TestFrontendAssets:
         assert CSS.exists(), f"样式表缺失: {CSS}（打包/拆分遗漏？）"
         css = CSS.read_text(encoding="utf-8")
         # 自有命名空间与 Streamlit 内部选择器各抽一个代表
-        assert ".side-label" in css and ".statbar" in css
+        assert ".side-label" in css and ".ov-breakdown" in css
         assert '[data-testid="stSidebar"]' in css
 
     def test_js_balanced_and_poll_free(self):

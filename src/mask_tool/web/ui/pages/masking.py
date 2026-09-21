@@ -209,52 +209,39 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         st.success("✅ 未检测到敏感信息，文件安全！")
         return
 
-    # ── 检测结果统计 ──
-    st.markdown("#### 📊 检测结果概览")
-
-    # 紧凑统计条（代替 4 张大卡片）
+    # ── 检测结果概览：三段式（总数｜处置分布｜类别数量条）──
     auto_count = sum(1 for r in all_results if r.status == DetectionStatus.AUTO_MASK)
     suggest_count = sum(1 for r in all_results if r.status == DetectionStatus.SUGGEST_MASK)
     hint_count = sum(1 for r in all_results if r.status == DetectionStatus.HINT_ONLY)
-    st.markdown(
-        f'<div class="statbar">'
-        f'<div class="stat"><span class="v">{len(all_results)}</span><span class="k">检测总数</span></div>'
-        f'<div class="stat s-auto"><span class="v">{auto_count}</span><span class="k">自动脱敏</span></div>'
-        f'<div class="stat s-sugg"><span class="v">{suggest_count}</span><span class="k">建议脱敏</span></div>'
-        f'<div class="stat s-hint"><span class="v">{hint_count}</span><span class="k">仅提示</span></div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
 
-    # 类别分布
+    # 类别分布（按数量降序）
     type_counts: Dict[str, int] = {}
     for r in all_results:
         label = TYPE_LABELS.get(r.text_type, r.text_type.value)
         type_counts[label] = type_counts.get(label, 0) + 1
+    sorted_counts = sorted(type_counts.items(), key=lambda x: -x[1])
+    max_val = max(type_counts.values()) if type_counts else 1
 
-    if type_counts:
-        chart_cols = st.columns([2, 1])
-        with chart_cols[0]:
-            # 用原生 HTML 条形图代替 st.bar_chart（避免 pyarrow 依赖）
-            sorted_counts = sorted(type_counts.items(), key=lambda x: x[1])
-            max_val = max(type_counts.values()) if type_counts else 1
-            bars_html = '<div style="font-size:0.85rem;">'
-            for label, count in sorted_counts:
-                pct = int(count / max_val * 100)
-                bars_html += (
-                    f'<div style="display:flex;align-items:center;margin-bottom:4px;">'
-                    f'<span style="width:120px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{label}</span>'
-                    f'<div style="flex:1;background:var(--mt-bar-track,#eee);border-radius:4px;height:22px;position:relative;">'
-                    f'<div style="background:linear-gradient(90deg,#667eea,#764ba2);width:{pct}%;height:100%;border-radius:4px;min-width:2px;"></div>'
-                    f'<span style="position:absolute;right:6px;top:2px;font-size:0.78rem;font-weight:600;">{count}</span>'
-                    f'</div></div>'
-                )
-            bars_html += '</div>'
-            st.markdown(bars_html, unsafe_allow_html=True)
-        with chart_cols[1]:
-            st.markdown("**类别分布**")
-            for label, count in sorted(type_counts.items(), key=lambda x: -x[1]):
-                st.markdown(f"- {label}: **{count}** 项")
+    cats_html = "".join(
+        f'<div class="ov-bar-row"><span class="ov-bar-label">{label}</span>'
+        f'<div class="ov-bar-track"><div class="ov-bar-fill" style="width:{int(count / max_val * 100)}%"></div></div>'
+        f'<span class="ov-bar-num">{count}</span></div>'
+        for label, count in sorted_counts
+    )
+    st.markdown(
+        f'<div class="ov">'
+        f'<div class="ov-total"><span class="n">{len(all_results)}</span><span class="t">处敏感信息</span></div>'
+        f'<div class="ov-sep"></div>'
+        f'<div class="ov-breakdown">'
+        f'<span class="ov-item auto">✅ <b>{auto_count}</b> 自动脱敏</span>'
+        f'<span class="ov-item sugg">⚠️ <b>{suggest_count}</b> 建议脱敏</span>'
+        f'<span class="ov-item hint">ℹ️ <b>{hint_count}</b> 仅提示</span>'
+        f'</div>'
+        f'<div class="ov-sep"></div>'
+        f'<div class="ov-cats">{cats_html}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── Step 3: 确认选择 ──
     st.markdown("---")
