@@ -41,11 +41,15 @@ def _parse_custom_words(text: str) -> List[str]:
 # 任务态会话键：检测/勾选/产物/结果页筛选与批次信息，新建任务时全清。
 # 配置态键（运行模式/NER/不可逆/学习词库/文件名脱敏开关、custom_words_input、
 # manual_only_mode、learn_set）不在此列，跨任务保留。
+# R7：batch_id_display 已随主页批次信息区块移除，批次ID 改在执行确认
+# 对话框内生成（pending_batch_id）；mask_dialog_token / dlg_sel_* 为
+# 对话框勾选态（带 token 前缀防串扰）。
 TASK_STATE_KEYS = [
     "detection_results", "file_results", "user_selections",
     "tmp_dir", "saved_paths", "mask_result", "restore_result",
     "filter_type", "filter_status", "filter_source", "filter_file",
-    "search_text", "batch_name_input", "batch_id_display",
+    "search_text", "batch_name_input", "pending_batch_id",
+    "mask_dialog_token",
     "task_kind", "zip_tree_root", "zip_blocked_files",
     "dir_zip_upload", "restore_zip_upload",
 ]
@@ -65,6 +69,12 @@ def _clear_task_state(clear_upload: bool = True) -> None:
     if clear_upload:
         keys.append("file_uploader")
     for key in keys:
+        st.session_state.pop(key, None)
+    # R7：执行确认对话框的勾选态（dlg_sel_<token>_<idx>，不在
+    # TASK_STATE_KEYS 白名单内）随任务态一并回收，避免会话累积死键
+    for key in [
+        k for k in list(st.session_state.keys()) if k.startswith("dlg_sel_")
+    ]:
         st.session_state.pop(key, None)
 
 
@@ -89,7 +99,8 @@ def _apply_grid_selection(filtered_indices: List[int], selected_rows,
         · 无“选择”列（SELECTION_CHANGED 回传的选中行）：在集合中即为选中。
       - None：无回传，返回 False。
     仅同步当前筛选可见行（filtered_indices），不可见行勾选态不受影响。
-    返回是否有变化（调用方据此 rerun 刷新“即将脱敏”列表）。
+    返回是否有变化（调用方据此 rerun 刷新选中计数；R7 后选中项终审
+    在“执行脱敏”确认对话框，不再有主页联动预览）。
     """
     if selected_rows is None:
         return False
@@ -119,9 +130,10 @@ def _apply_grid_selection(filtered_indices: List[int], selected_rows,
 
 
 def _final_selected_indices(all_results, selections: Dict[int, bool]) -> List[int]:
-    """"即将脱敏"确认列表：按 user_selections 过滤的全局索引。
+    """执行确认对话框的待确认清单：按 user_selections 过滤的全局索引。
 
-    检测表格任何勾选变化后，本函数的输出与计数立即一致（I6 问题3）。
+    R7：选中项预览不再驻留主页，改为点击“执行脱敏”后在
+    _confirm_mask_dialog 弹窗内逐项勾选终审；本函数输出即弹窗清单。
     """
     return [
         i for i in range(len(all_results)) if selections.get(i, False)

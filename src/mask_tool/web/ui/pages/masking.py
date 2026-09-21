@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from typing import Dict
+from uuid import uuid4
 
 import streamlit as st
 import pandas as pd
@@ -373,8 +374,9 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     )
     st.caption(f"当前显示 {len(filtered_indices)} 项，已选中 **{selected_count}** 项")
 
-    # 检测结果表格（AgGrid；SELECTION_CHANGED：勾选变化立即回传并触发
-    # rerun，保证下方"即将脱敏"列表与计数同步——I6 问题3）
+    # 检测结果表格（AgGrid；VALUE_CHANGED：勾选变化立即回传并触发
+    # rerun，保证表格勾选态与选中计数同步——I6 问题3；选中项终审
+    # 已移至“执行脱敏”确认对话框，主页不再有联动预览区——R7）
     if filtered_indices:
         from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
@@ -436,7 +438,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         )
 
         # 从回传数据（编辑后的全表）同步勾选态；有变化立即 rerun，
-        # 保证计数、“即将脱敏”列表与表格一致（I6 问题3）
+        # 保证计数与表格一致（I6 问题3；选中项终审在执行确认对话框，R7）
         changed = _apply_grid_selection(
             filtered_indices,
             grid_response.get("data"),
@@ -449,52 +451,20 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     st.markdown("---")
     render_steps(4)
 
-    # 最终确认的项（勾选变化后即时一致：I6 问题3）
+    # 待确认的项：不在主页展示“即将脱敏”预览（R7），改为点击“执行脱敏”
+    # 后在确认对话框中逐项勾选终审，表格勾选与预览的联动随之取消
     final_selected = _final_selected_indices(
         all_results, st.session_state["user_selections"]
     )
 
-    if not final_selected:
-        st.warning("⚠️ 请至少选择一项进行脱敏")
-        return
-
-    st.markdown(f"#### 📋 即将脱敏 **{len(final_selected)}** 项")
-
-    # 展示选中项预览
-    preview_items = []
-    for i in final_selected:
-        r = all_results[i]
-        preview_items.append(f"- {r.text} ({TYPE_LABELS.get(r.text_type, '')})")
-    with st.expander("查看选中项详情", expanded=False):
-        st.markdown("\n".join(preview_items[:50]))
-        if len(preview_items) > 50:
-            st.caption(f"... 共 {len(preview_items)} 项")
-
-    # 批次信息
-    st.markdown("#### 📦 批次信息")
-    batch_cols = st.columns(2)
-    with batch_cols[0]:
-        batch_name = st.text_input(
-            "批次名称（可选）",
-            placeholder="例如：2026年Q1财务报告脱敏",
-            key="batch_name_input",
-        )
-    with batch_cols[1]:
-        # 自动生成批次ID，每次 rerun 重新生成
-        batch_id = _generate_batch_id()
-        st.text_input(
-            "批次ID（自动生成）",
-            value=batch_id,
-            disabled=True,
-            key="batch_id_display",
-        )
-
     exec_cols = st.columns(3)
     with exec_cols[0]:
         execute_btn = st.button(
-            "🚀 执行脱敏",
+            f"🚀 执行脱敏（{len(final_selected)} 项）"
+            if final_selected else "🚀 执行脱敏",
             type="primary",
             width="stretch",
+            disabled=not final_selected,
         )
     with exec_cols[1]:
         re_detect_btn = st.button(
@@ -519,14 +489,113 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         st.rerun()
 
     if execute_btn:
+        # 打开执行确认对话框（R7）；每次打开换新 token，对话框内 checkbox
+        # 的 session key 带 token 前缀，避免上次弹窗的勾选态串扰本次
+        st.session_state["mask_dialog_token"] = uuid4().hex[:8]
+        st.session_state.pop("pending_batch_id", None)
+        _confirm_mask_dialog(
+            uploaded_files=uploaded_files,
+            final_selected=final_selected,
+            all_results=all_results,
+            mode=mode,
+            ner_enabled=ner_enabled,
+            irreversible=irreversible,
+            learn_words=learn_words,
+            mask_filenames=mask_filenames,
+            custom_words_text=custom_words_text,
+            manual_only=manual_only,
+        )
+    elif not final_selected:
+        st.caption("⚠️ 请在上方表格至少勾选一项后再执行脱敏")
+
+
+# ──────────────────────────────────────────────
+# 执行脱敏确认对话框（R7：原“即将脱敏”预览区 + 批次信息区块改为
+# 点击“执行脱敏”后的 check list 弹窗终审，主页联动预览随之移除）
+# ──────────────────────────────────────────────
+
+@st.dialog("✅ 确认脱敏内容", width="large")
+def _confirm_mask_dialog(uploaded_files, final_selected, all_results,
+                         mode, ner_enabled, irreversible, learn_words,
+                         mask_filenames, custom_words_text, manual_only):
+    """执行前确认弹窗：check list 终审 + 批次信息填写。
+
+    - 清单默认全勾选（继承主表格勾选）；弹窗内取消的项本次不脱敏，
+      确认时回写 user_selections，“返回重新脱敏”后主表格保持一致；
+    - 批次信息随弹窗填写（批次ID 在弹窗打开时生成一次，确认过程稳定）；
+    - 确认执行走 _run_masking：成功路径其内部 st.rerun() 关闭弹窗并
+      跳转结果页；取消按钮直接 rerun 关闭弹窗。
+    """
+    token = st.session_state.get("mask_dialog_token", "")
+
+    def _sel_key(i: int) -> str:
+        return f"dlg_sel_{token}_{i}"
+
+    st.markdown(
+        f"即将对以下 **{len(final_selected)}** 项执行脱敏，"
+        f"请逐项确认（取消勾选的项本次不处理）："
+    )
+
+    # check list：滚动容器逐项勾选（数量多时容器内滚动，弹窗不无限拉长）
+    with st.container(height=340):
+        for i in final_selected:
+            r = all_results[i]
+            text_show = r.text if len(r.text) <= 48 else r.text[:48] + "…"
+            label = (
+                f"{text_show}　|　{TYPE_LABELS.get(r.text_type, r.text_type.value)}"
+                f" · {SOURCE_LABELS.get(r.source, r.source)}"
+                f" · 置信度 {r.confidence:.2f}"
+            )
+            if r.location.file:
+                label += f" · {Path(r.location.file).name}"
+            st.checkbox(label, value=True, key=_sel_key(i))
+
+    # 批次信息（原 Step 4 区块移入：批次名称作为执行前最后一步在此填写）
+    if "pending_batch_id" not in st.session_state:
+        st.session_state["pending_batch_id"] = _generate_batch_id()
+    batch_id = st.session_state["pending_batch_id"]
+    st.markdown("#### 📦 批次信息")
+    batch_cols = st.columns(2)
+    with batch_cols[0]:
+        st.text_input(
+            "批次名称（可选）",
+            placeholder="例如：2026年Q1财务报告脱敏",
+            key="batch_name_input",
+        )
+    with batch_cols[1]:
+        st.text_input("批次ID（自动生成）", value=batch_id, disabled=True)
+
+    dialog_selected = [
+        i for i in final_selected if st.session_state.get(_sel_key(i), True)
+    ]
+    btn_cols = st.columns(2)
+    confirmed = btn_cols[0].button(
+        f"🚀 确认执行（{len(dialog_selected)} 项）"
+        if dialog_selected else "🚀 确认执行",
+        type="primary", width="stretch",
+        disabled=not dialog_selected,
+    )
+    if btn_cols[1].button("取消", width="stretch"):
+        st.session_state.pop("pending_batch_id", None)
+        st.rerun()
+
+    if confirmed:
+        # 以弹窗内最终勾选为准，并回写主表格勾选态（返回重脱时保持一致）
+        sel_set = set(dialog_selected)
+        for i in final_selected:
+            st.session_state["user_selections"][i] = i in sel_set
+        batch_name = st.session_state.get("batch_name_input") or ""
+        st.session_state.pop("pending_batch_id", None)
         with st.spinner("正在执行脱敏..."):
             _run_masking(
-                uploaded_files, final_selected, all_results,
+                uploaded_files, dialog_selected, all_results,
                 mode, ner_enabled, irreversible, learn_words,
                 batch_id, batch_name, mask_filenames=mask_filenames,
                 manual_words=_parse_custom_words(custom_words_text),
                 manual_only=manual_only,
             )
+        # 成功路径 _run_masking 内部已 st.rerun() 关闭弹窗并跳转结果页；
+        # 走到这里说明未产出脱敏文件，保持弹窗打开以展示错误/警告
 
 
 def _render_mask_result():

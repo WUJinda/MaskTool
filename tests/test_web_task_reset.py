@@ -98,7 +98,9 @@ def _seed_task_state(web) -> Path:
     ss["filter_file"] = "a.docx"
     ss["search_text"] = "关键词"
     ss["batch_name_input"] = "旧批次"
-    ss["batch_id_display"] = "MSK-OLD"
+    ss["pending_batch_id"] = "MSK-OLD"          # R7：对话框生成的批次ID
+    ss["mask_dialog_token"] = "deadbeef"         # R7：对话框勾选 token
+    ss["dlg_sel_deadbeef_0"] = True               # R7：对话框勾选态（随任务清理）
     ss["file_uploader"] = [SimpleNamespace(name="a.docx")]
     # 配置态
     ss["custom_words_input"] = "绝密项目代号，内部代号X7"
@@ -112,7 +114,8 @@ TASK_KEYS = [
     "detection_results", "file_results", "user_selections", "tmp_dir",
     "saved_paths", "mask_result", "restore_result", "filter_type",
     "filter_status", "filter_source", "filter_file", "search_text",
-    "batch_name_input", "batch_id_display",
+    "batch_name_input", "pending_batch_id", "mask_dialog_token",
+    "dlg_sel_deadbeef_0",
 ]
 CONFIG_KEYS = ["custom_words_input", "manual_only_mode", "mask_filenames",
                "learn_set"]
