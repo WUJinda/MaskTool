@@ -250,3 +250,22 @@ def test_root_array_wrapped():
     assert out == {"__root_array__": [{"id": 0, "decision": "keep", "reason": "ok"}]}
     out2 = c.chat_json(MSGS, SCHEMA)
     assert out2 == {"__root_array__": [{"id": 0}]}
+
+
+def test_think_section_stripped():
+    """qwen3 thinking 模型：<think> 段剥离后再解析 JSON。"""
+    import pytest
+    from mask_tool.core.llm.exceptions import LLMError
+
+    s = FakeSession(scripted=[
+        _ok_completion('<think>让我分析一下这段文本……</think>{"items": []}'),
+        _ok_completion('前置噪声 {"items": [1]}'),
+    ])
+    c = _client(s)
+    assert c.chat_json(MSGS, SCHEMA) == {"items": []}
+    assert c.chat_json(MSGS, SCHEMA) == {"items": [1]}
+
+    # 未闭合 <think>：其后无 JSON，三档降级链全部解析失败
+    s2 = FakeSession(scripted=[_ok_completion('<think>截断的思考') for _ in range(3)])
+    with pytest.raises(LLMError):
+        _client(s2).chat_json(MSGS, SCHEMA)

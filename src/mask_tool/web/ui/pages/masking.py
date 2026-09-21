@@ -166,38 +166,40 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     # ── Step 2: 检测分析 ──
     st.markdown("---")
 
-    # 输入区双栏：左 = 临时敏感词输入（加高）；右 = 本次任务选项（2.3 比例优化）
-    mi_cols = st.columns([1, 0.42])
+    # 输入区双栏（卡片化由 app.css 锚定）：左 = 临时敏感词输入；右 = 本次任务选项
+    mi_cols = st.columns([1.5, 1])
     with mi_cols[0]:
         # I6：临时自定义敏感词（仅本次任务生效，不写入词库文件）
         st.markdown(
             '<div class="mi-label"><b>✍️ 临时自定义敏感词</b>'
-            '<span class="badge">仅本次任务生效</span></div>',
+            '<span class="badge">仅本次任务生效</span></div>'
+            '<div class="mi-hint">每行一个词，或用逗号分隔；不写入词库</div>',
             unsafe_allow_html=True,
         )
         custom_words_text = st.text_area(
             "临时自定义敏感词",
-            placeholder=("每行一个词，或用逗号分隔；仅本次任务生效，不写入词库。\n"
-                         "例：某某科技有限公司，张三丰，2026年Q3财报"),
+            placeholder="例：某某科技有限公司，张三丰，2026年Q3财报",
             key="custom_words_input",
-            height=118,
+            height=104,
             label_visibility="collapsed",
         )
+        _n_words = len(_parse_custom_words(custom_words_text))
+        st.markdown(
+            f'<div class="mi-count">已识别 <b>{_n_words}</b> 个词</div>',
+            unsafe_allow_html=True,
+        )
     with mi_cols[1]:
-        # 同时脱敏文件名（仅处理主名，不改扩展名）
+        # 同时脱敏文件名（仅处理主名，不改扩展名）；副说明由 app.css ::after 注入
+        st.markdown('<div class="mi-right-title">本次任务选项</div>', unsafe_allow_html=True)
         mask_filenames = st.checkbox(
             "同时脱敏文件名",
             value=True,
             key="mask_filenames",
-            help="对文件主名（不含扩展名）执行同样的检测与替换，Token 与正文共享",
         )
         manual_only = st.checkbox(
-            "仅脱敏我指定的词（跳过自动检测）",
+            "仅脱敏我指定的词",
             value=False,
             key="manual_only_mode",
-            help=("开启后完全跳过自动检测（NER/正则/词库均不运行），"
-                  "检测与脱敏只处理左侧手动指定的词；适合自动检测误报多、"
-                  "只想针对性脱敏的场景"),
         )
 
     if st.button("🔍 开始检测", type="primary", width="stretch"):

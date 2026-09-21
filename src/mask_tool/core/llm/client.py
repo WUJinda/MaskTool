@@ -337,6 +337,11 @@ def _extract_json_object(content: str) -> dict:
     if not content or not content.strip():
         raise LLMParseError("LLM 输出为空")
     text = content.strip()
+    # qwen3 等混合 thinking 模型：剥离 <think>...</think> 段
+    # （未闭合时其后无 JSON 可解析，一并丢弃走降级链）
+    if "<think>" in text:
+        _end = text.find("</think>")
+        text = text[_end + 8:] if _end >= 0 else ""
     # 提取 ```json ... ``` / ``` ... ``` 围栏块（允许前后有噪声文字）
     m = re.search(r"```[a-zA-Z]*\s*(.*?)```", text, re.DOTALL)
     if m and m.group(1).strip():

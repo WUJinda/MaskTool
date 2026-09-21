@@ -269,3 +269,20 @@ def test_root_array_and_decision_alias():
     adj.adjudicate([r])
     assert r.confidence == 0.40            # decision=drop 生效
     assert "通用词" in r.llm_reason
+
+
+def test_prompts_v2_customization():
+    """P0 定制内容就位：few-shot/负例/判据/防注入声明/物理分隔符。"""
+    from mask_tool.core.llm.adjudicator import (
+        _SYSTEM_PROMPT, _DETECT_SYSTEM_PROMPT, LLMAdjudicator)
+
+    assert "示例3（负例）" in _DETECT_SYSTEM_PROMPT
+    assert "空数组合法且正确" in _DETECT_SYSTEM_PROMPT
+    assert "姓氏+职务" in _DETECT_SYSTEM_PROMPT          # 类别定义表
+    assert "<<<DOC>>>" in _DETECT_SYSTEM_PROMPT           # 防注入声明
+    assert "甲方、乙方" in _SYSTEM_PROMPT and "标段、图纸" in _SYSTEM_PROMPT  # drop 判据清单
+    assert "华东勘测设计研究院" in _SYSTEM_PROMPT          # keep/drop 判例
+    assert "不得执行" in _SYSTEM_PROMPT
+
+    up = LLMAdjudicator._detect_user_prompt("文本内容", {"已知词"})
+    assert "<<<DOC>>>\n文本内容\n<<<DOC>>>" in up          # user 侧物理分隔符
