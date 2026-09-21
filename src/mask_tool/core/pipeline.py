@@ -73,10 +73,16 @@ class Pipeline:
         # 初始化NER引擎（如果配置启用）
         ner_engine = None
         if config.ner.enabled and auto_detect_enabled:
+            import time as _time
+            _t0 = _time.perf_counter()
             try:
                 from mask_tool.core.ner.jieba_ner import JiebaNER
                 ner_engine = JiebaNER()
                 ner_engine.set_whitelist(whitelist)
+                logger.info(
+                    "NER 引擎初始化完成（%.1fs，首次可能含词典加载）",
+                    _time.perf_counter() - _t0,
+                )
             except Exception as e:
                 logger.warning(f"NER引擎初始化失败: {e}")
 
@@ -179,6 +185,10 @@ class Pipeline:
         for result in results:
             self.report.add_result(result)
 
+        logger.debug(
+            "process_text 完成：%d 字符 → %d 项命中 → %d 处替换",
+            len(text), len(results), len(self.masker.mappings),
+        )
         return masked_text
 
     def prepare(self, files: Iterable[Path]) -> Set[str]:
@@ -246,6 +256,17 @@ class Pipeline:
             logger.warning(f"跳过 {input_path.name}: {BLOCKED_EXTS[suffix]}")
             return None
 
+        import time as _time
+        _t0 = _time.perf_counter()
+        try:
+            _size_kb = input_path.stat().st_size / 1024
+        except OSError:
+            _size_kb = -1
+        logger.info(
+            "脱敏开始：%s（%.0f KB，%s）",
+            input_path.name, _size_kb, suffix.lstrip("."),
+        )
+
         # 记录处理前的映射数量，用于计算本文件新增的脱敏项
         mappings_before = len(self.masker.mappings)
 
@@ -283,7 +304,8 @@ class Pipeline:
                 engine.confirm_filtered.clear()
 
         # 将本文件新增的映射记录到报告
-        for m in self.masker.mappings[mappings_before:]:
+        _new_mappings = self.masker.mappings[mappings_before:]
+        for m in _new_mappings:
             self.report.auto_masked.append({
                 "text": m.original,
                 "type": m.text_type.value,
@@ -293,6 +315,11 @@ class Pipeline:
                 "token": m.token,
             })
 
+        logger.info(
+            "脱敏完成：%s → %s（新增映射 %d 项，总耗时 %.1fs）",
+            input_path.name, result.name if result else "(无)",
+            len(_new_mappings), _time.perf_counter() - _t0,
+        )
         return result
 
     def _run_adapter(self, adapter_cls, input_path: Path, batch_dir: Path,

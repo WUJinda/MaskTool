@@ -118,6 +118,7 @@ class OpenAICompatClient:
         ladder = [self._capability] if self._capability else [
             _CAP_JSON_SCHEMA, _CAP_JSON_OBJECT, _CAP_PROMPT,
         ]
+        ladder_len = len(ladder)
         last_error: Optional[LLMError] = None
         for cap in ladder:
             payload_messages, response_format = self._build_request(
@@ -146,7 +147,10 @@ class OpenAICompatClient:
                 logger.debug("LLM 输出解析失败（%s 档）: %s", cap, exc)
                 continue
             # 请求与解析均成功：落定该档能力（后续复用，不再探测）
+            first_probe = self._capability is None
             self._capability = cap
+            if first_probe:
+                logger.info("LLM 结构化输出档位落定: %s（探测 %d 档）", cap, ladder_len)
             return obj
 
         raise last_error or LLMParseError("结构化补全失败：所有档位均不可用")
@@ -275,16 +279,25 @@ class OpenAICompatClient:
                 f"LLM 端点服务错误: HTTP {resp.status_code}"
             )
         if code >= 400:
-            # 4xx：当前档位不被支持（含 json_schema/json_object 传参被拒）。
-            # 探测阶段的 400 属预期路径（DEBUG）；鉴权/限流类必须可见（WARNING）
-            log_fn = (logger.warning if code in (401, 403, 429)
-                      else logger.debug)
-            log_fn("LLM 请求被拒 HTTP %d（%.1fs）: %s",
-                   code, elapsed, getattr(resp, "text", "")[:200])
             detail = getattr(resp, "text", "") or ""
             hint = f"：{detail[:120]}" if detail else ""
+            # 鉴权/额度类错误（401/403/429）与档位无关，换档重试毫无意义：
+            # 直接归一为不可用上抛，让上层熔断（3 次）更快生效，
+            # 也避免无意义重试拖慢检测/脱敏主流程
+            if code in (401, 403, 429):
+                logger.warning(
+                    "LLM 请求被拒 HTTP %d（%.1fs，不重试直接降级）: %s",
+                    code, elapsed, detail[:200],
+                )
+                raise LLMUnavailableError(
+                    f"LLM 端点拒绝请求: HTTP {code}{hint}"
+                )
+            # 其余 4xx：当前档位不被支持（含 json_schema/json_object
+            # 传参被拒）。探测阶段的 400 属预期路径（DEBUG）
+            logger.debug("LLM 请求被拒 HTTP %d（%.1fs）: %s",
+                         code, elapsed, detail[:200])
             raise LLMError(
-                f"LLM 端点拒绝请求: HTTP {resp.status_code}{hint}"
+                f"LLM 端点拒绝请求: HTTP {code}{hint}"
             )
         logger.info("LLM 请求成功 POST %s → %d（%.1fs）", path, code, elapsed)
         return resp

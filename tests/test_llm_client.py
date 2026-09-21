@@ -269,3 +269,30 @@ def test_think_section_stripped():
     s2 = FakeSession(scripted=[_ok_completion('<think>截断的思考') for _ in range(3)])
     with pytest.raises(LLMError):
         _client(s2).chat_json(MSGS, SCHEMA)
+
+
+def test_401_no_ladder_retry():
+    """401/429/403 与档位无关：一次请求即抛 Unavailable，不换档重试。
+
+    修复前 401 会沿降级链空转 3 次请求（鉴权错误换档毫无意义）；
+    现在直接上抛让上层熔断（连续 3 次）更快生效。
+    """
+    s = FakeSession(scripted=[
+        FakeResponse(401, {"error": {"code": "1000", "message": "身份验证失败"}}),
+    ])
+    c = _client(s)
+    with pytest.raises(LLMUnavailableError):
+        c.chat_json(MSGS, SCHEMA)
+    assert c.capability is None  # 档位未落定
+    assert not s.scripted  # 只消耗 1 个响应：无第二次/第三次换档请求
+
+
+def test_429_no_ladder_retry():
+    """429（限流/额度）同样不换档：一次请求即抛 Unavailable。"""
+    s = FakeSession(scripted=[
+        FakeResponse(429, {"error": {"code": "1113", "message": "余额不足"}}),
+    ])
+    c = _client(s)
+    with pytest.raises(LLMUnavailableError):
+        c.chat_json(MSGS, SCHEMA)
+    assert not s.scripted

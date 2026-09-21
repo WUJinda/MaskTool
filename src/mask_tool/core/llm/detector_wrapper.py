@@ -56,7 +56,10 @@ class LLMEnhancedDetector(Detector):
 
     def detect(self, text: str, file_path: str = "") -> List:
         """规则检测 + 按 role 的 LLM 增强；任何 LLM 异常均降级纯规则结果。"""
+        import time as _time
+        _t0 = _time.perf_counter()
         results = self._base.detect(text, file_path)
+        _t_rule = _time.perf_counter() - _t0
 
         # P2：增量检测（detector / both）——规则已检出的实体作为排除集
         if self._role in ("detector", "both") and results is not None:
@@ -77,6 +80,11 @@ class LLMEnhancedDetector(Detector):
             except Exception as exc:  # 防御层：adjudicate 内部已捕获
                 logger.warning("LLM 复核异常，本段按规则结果处理: %s", exc)
 
+        logger.debug(
+            "detect（%d 字符）：规则 %d 项（%.2fs）+ LLM 增强（%.2fs）",
+            len(text or ""), len(results or []), _t_rule,
+            _time.perf_counter() - _t0 - _t_rule,
+        )
         return results
 
     def __getattr__(self, name):

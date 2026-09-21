@@ -49,6 +49,7 @@ llm:
   max_concurrency: 2           # 并发上限（预留）
   timeout_seconds: 30
   budget_max_calls: 200        # 单次运行最大调用数（超出跳过后续）
+  wall_clock_budget_seconds: 180  # LLM 增强总时长预算（秒），0=不限制
   cache: true                  # 同实体判定复用（跨段去重）
 
 # 存储配置

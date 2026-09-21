@@ -286,3 +286,27 @@ def test_prompts_v2_customization():
 
     up = LLMAdjudicator._detect_user_prompt("文本内容", {"已知词"})
     assert "<<<DOC>>>\n文本内容\n<<<DOC>>>" in up          # user 侧物理分隔符
+
+
+def test_wall_clock_budget_trips():
+    """wall-clock 总时长预算：首调计时，超预算后本次运行降级纯规则。
+
+    防慢模型/慢端点把检测/脱敏拖成无限转圈：预算耗尽置熔断，
+    后续增量检测与复核全部跳过（返回规则结果）。
+    """
+    import time as _time
+    client = FakeClient([{"entities": []}, {"entities": []}])
+    adj = LLMAdjudicator(client, _cfg(wall_clock_budget_seconds=0.001))
+    # 首次调用：guard 仅记录起点（不消耗预算），正常执行
+    adj.detect_new("张三在甲公司任职", "a.docx")
+    assert len(client.calls) == 1
+    # 预算窗口已过：第二次进入循环即熔断，不再发起调用
+    _time.sleep(0.01)
+    out = adj.detect_new("李四负责乙项目的审计工作", "a.docx")
+    assert out == []
+    assert len(client.calls) == 1
+    assert adj._tripped
+    # 熔断后复核同样直接跳过
+    r = _result("某公司", 0.95)
+    adj.adjudicate([r])
+    assert len(client.calls) == 1

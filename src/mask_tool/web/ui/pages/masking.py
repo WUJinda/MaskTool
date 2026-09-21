@@ -203,7 +203,13 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         )
 
     if st.button("🔍 开始检测", type="primary", width="stretch"):
-        _loading_overlay("正在分析，检测敏感信息...", "大文件 / 多文件可能需要几十秒，请勿关闭窗口")
+        _ai_on = bool(st.session_state.get("llm_enabled", False))
+        _loading_overlay(
+            "正在分析，检测敏感信息...",
+            ("AI 增强已开启：模型响应速度决定耗时，超预算自动降级纯规则"
+             if _ai_on else
+             "大文件 / 多文件可能需要几十秒，请勿关闭窗口"),
+        )
         _run_detection(
                 [] if dir_zip is not None else uploaded_files,
                 mode, ner_enabled,
@@ -721,7 +727,12 @@ def _confirm_mask_dialog(uploaded_files, final_selected, all_results,
             st.session_state["user_selections"][i] = i in sel_set
         batch_name = st.session_state.get("batch_name_input") or ""
         st.session_state.pop("pending_batch_id", None)
-        _loading_overlay("正在执行脱敏，生成产物…", "正在按您的勾选替换敏感内容")
+        _loading_overlay(
+            "正在执行脱敏，生成产物…",
+            ("AI 增强已开启：含模型复核环节，超预算自动降级纯规则"
+             if bool(st.session_state.get("llm_enabled", False)) else
+             "正在按您的勾选替换敏感内容"),
+        )
         _run_masking(
                 uploaded_files, dialog_selected, all_results,
                 mode, ner_enabled, irreversible, learn_words,

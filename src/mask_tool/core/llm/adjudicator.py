@@ -288,10 +288,39 @@ class LLMAdjudicator:
         # 超时累积拖垮批处理；成功调用归零计数）
         self._consecutive_errors = 0
         self._tripped = False
+        # wall-clock 总时长预算：首次真实调用起计，超限后本次运行剩余
+        # 部分降级纯规则（防慢模型/慢端点把检测/脱敏拖成无限转圈）
+        self._t_first_call = None
+        self._wall_clock_warned = False
 
     @property
     def stats(self) -> LLMRunStats:
         return self._stats
+
+    def _wall_clock_guard(self) -> bool:
+        """LLM 总时长预算检查（首调时启动计时）。
+
+        Returns:
+            True = 预算已耗尽（调用方应跳过后续块/批次）；False = 可继续。
+            首次调用总是返回 False（记录起点，不消耗预算）。
+        """
+        import time as _time
+        budget = getattr(self._config, "wall_clock_budget_seconds", 180)
+        if budget <= 0 or self._tripped:
+            return self._tripped
+        if self._t_first_call is None:
+            self._t_first_call = _time.perf_counter()
+            return False
+        elapsed = _time.perf_counter() - self._t_first_call
+        if elapsed > budget:
+            if not self._wall_clock_warned:
+                self._wall_clock_warned = True
+                self._tripped = True
+                logger.warning(
+                    "LLM 总时长预算（%ds）已耗尽（实际 %.1fs），"
+                    "本次运行剩余部分降级纯规则模式", budget, elapsed,
+                )
+        return self._tripped
 
     # ------------------------------------------------------------------
 
@@ -374,6 +403,8 @@ class LLMAdjudicator:
         for ci, chunk in enumerate(chunks, 1):
             if self._stats.calls >= self._config.budget_max_calls:
                 self._warn_budget_once()
+                break
+            if self._wall_clock_guard():
                 break
             t0 = _time.perf_counter()
             try:
@@ -474,6 +505,8 @@ class LLMAdjudicator:
             batch = items[start:start + batch_size]
             if self._stats.calls >= self._config.budget_max_calls:
                 self._warn_budget_once()
+                return
+            if self._wall_clock_guard():
                 return
             t0 = _time.perf_counter()
             try:

@@ -4,8 +4,10 @@
 UI 页面只编排交互；对 core.Pipeline / adapters 的调用集中在本模块。
 """
 import json
+import logging
 import shutil
 import tempfile
+import time
 import zipfile
 from datetime import datetime
 from io import BytesIO
@@ -26,6 +28,8 @@ from .files import _classify_tree_files, _safe_unzip
 from .history import BatchRecord, _add_history
 from .labels import BLOCKED_EXTS, SUPPORTED_MASK_EXTS, TYPE_LABELS
 from .state import _dedup_results
+
+logger = logging.getLogger("mask_tool")
 
 # 批次目录：脱敏输出与 mapping.json 的持久化位置（~/.mask-tool/batches/<batch_id>/）
 BATCHES_DIR = Path.home() / ".mask-tool" / "batches"
@@ -229,6 +233,17 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
     # 误读新结果集——learn_set 旧索引会把不相关的词写进词库文件）
     st.session_state.pop("user_selections", None)
     st.session_state.pop("learn_set", None)
+    # 节点日志：用户动作入口（文件清单/模式/开关状态），排查"点了没反应/转圈"的第一现场
+    _names = [f.name for f in (uploaded_files or [])] or (
+        [zip_file.name] if zip_file else []
+    )
+    logger.info(
+        "检测开始：%d 个文件 %s，模式=%s，NER=%s，AI增强=%s",
+        len(_names), _names[:5], mode,
+        "开" if (ner_enabled and not manual_only) else "关",
+        "开" if st.session_state.get("llm_enabled", False) else "关",
+    )
+    _t_start = time.perf_counter()
     # 加载配置
     cfg = _load_config(mode)
     cfg.ner.enabled = ner_enabled and not manual_only
@@ -293,14 +308,17 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
     from mask_tool.adapters.extract import detect_file_results
 
     for file_path in saved_paths:
+        _t_file = time.perf_counter()
         try:
             suffix = file_path.suffix.lower()
             if suffix in BLOCKED_EXTS:
+                logger.error("跳过受控类型 %s: %s", file_path.name, BLOCKED_EXTS.get(suffix))
                 st.error(
                     f"跳过 {file_path.name}：{BLOCKED_EXTS.get(suffix)}"
                 )
                 continue
             if suffix not in SUPPORTED_MASK_EXTS:
+                logger.warning("跳过不支持的文件类型: %s", file_path.name)
                 st.warning(f"跳过不支持的文件类型: {file_path.name}")
                 continue
 
@@ -320,7 +338,12 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
             else:
                 file_key = file_path.name
             file_results[file_key] = results
+            logger.info(
+                "检测文件完成：%s → %d 项（%.1fs）",
+                file_path.name, len(results), time.perf_counter() - _t_file,
+            )
         except Exception as e:
+            logger.exception("检测 %s 失败", file_path.name)
             st.error(f"检测 {file_path.name} 时出错: {e}")
 
     # 跨文件去重
@@ -340,6 +363,10 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
     st.session_state["zip_blocked_files"] = zip_blocked
 
     _snapshot_llm_summary()  # P3：固化 AI 运行摘要（结果页横幅/侧栏徽标）
+    logger.info(
+        "检测完成：%d 个文件 → %d 项敏感信息（去重后，总耗时 %.1fs）",
+        len(saved_paths), len(all_results), time.perf_counter() - _t_start,
+    )
     st.success(f"✅ 检测完成！共发现 **{len(all_results)}** 项敏感信息")
     st.rerun()
 
@@ -380,6 +407,13 @@ def _run_masking(
         bool(st.session_state.get("llm_enabled", False))
         and bool(cfg.llm.base_url and cfg.llm.model)
     )
+    logger.info(
+        "脱敏开始：批次 %s，确认 %d 项，%s 任务，AI增强=%s",
+        batch_id, len(selected_indices),
+        st.session_state.get("task_kind", "files"),
+        "开" if cfg.llm.enabled else "关",
+    )
+    _t_start = time.perf_counter()
 
     pipeline = Pipeline(
         cfg, batch_id=batch_id, manual_words=manual_words,
@@ -491,6 +525,7 @@ def _run_masking(
                         st.warning(w)
                 output_files.append(result_path)
             except Exception as e:
+                logger.exception("脱敏 %s 失败", file_path.name)
                 st.error(f"脱敏 {file_path.name} 时出错: {e}")
 
         # zip 任务：非文档文件原样拷贝 + 空目录迁移 + 镜像树改名（mask_tree）
@@ -620,6 +655,10 @@ def _run_masking(
         shutil.rmtree(tmp_dir, ignore_errors=True)
         for key in ("tmp_dir", "saved_paths"):
             st.session_state.pop(key, None)
+        logger.info(
+            "脱敏结束：产物 %d 个（总耗时 %.1fs）",
+            len(output_files), time.perf_counter() - _t_start,
+        )
         _snapshot_llm_summary()  # P3：脱敏流程结束固化 AI 摘要
 
 

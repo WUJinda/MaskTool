@@ -43,6 +43,7 @@ class LLMConfig:
     max_concurrency: int = 2           # 并发上限（P1 串行，字段预留）
     timeout_seconds: int = 30
     budget_max_calls: int = 200        # 单次运行最大调用数（超出跳过后续）
+    wall_clock_budget_seconds: int = 180  # LLM 增强总时长预算（秒），0=不限制
     cache: bool = True                 # 同 (text, source, type) 判定复用
 
 
