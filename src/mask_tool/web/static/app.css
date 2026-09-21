@@ -202,6 +202,9 @@
     [data-testid="stToolbar"], #MainMenu { display: none !important; }
     [data-testid="stSidebarCollapseButton"], [data-testid="stSidebarExpandButton"],
     #sidebarCollapse, #sidebarExpand { display: none !important; }
+    /* 侧栏顶条容器（收起按钮的父层）：按钮隐藏后容器仍占 60px，
+       造成 logo 上方大片空白，必须连容器一起隐藏 */
+    [data-testid="stSidebarHeader"] { display: none !important; }
     [data-testid="stSidebar"] [data-testid="stSidebarContent"],
     [data-testid="stSidebar"] > div { padding-top: 0 !important; }
 
