@@ -41,8 +41,9 @@ class DetectionResult:
     """单条检测结果"""
     text: str                        # 匹配到的原始文本
     text_type: DetectionType         # 类别
-    source: str                      # 来源: "regex" / "dictionary" / "ner"
+    source: str                      # 来源: "regex" / "dictionary" / "ner" / "llm"
     confidence: float                # 置信度 0.0 ~ 1.0
     location: Location               # 文件内位置
     context: str = ""                # 上下文（前后各50字）
+    llm_reason: str = ""             # AI 复核判定说明（空=未经 LLM 复核；P1）
     status: DetectionStatus = DetectionStatus.HINT_ONLY  # 待策略引擎决定

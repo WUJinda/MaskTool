@@ -16,6 +16,7 @@ class MaskReport:
     suggested: List[dict] = field(default_factory=list)
     hints: List[dict] = field(default_factory=list)
     whitelist_hits: List[dict] = field(default_factory=list)
+    llm_stats: dict = field(default_factory=dict)   # P1：LLM 复核统计（空=未启用）
     processing_time_seconds: float = 0.0
     created_at: str = ""
 
@@ -32,6 +33,9 @@ class MaskReport:
             "confidence": result.confidence,
             "file": result.location.file,
         }
+        # P1：AI 复核说明随条目入报告（仅非空时，未启用 LLM 时无此键）
+        if result.llm_reason:
+            entry["llm_reason"] = result.llm_reason
         if result.status == DetectionStatus.AUTO_MASK:
             self.auto_masked.append(entry)
         elif result.status == DetectionStatus.SUGGEST_MASK:
@@ -52,7 +56,7 @@ class MaskReport:
         }
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "summary": self.summary(),
             "auto_masked": self.auto_masked,
             "suggested": self.suggested,
@@ -61,3 +65,7 @@ class MaskReport:
             "input_files": self.input_files,
             "output_files": self.output_files,
         }
+        # P1：仅启用 LLM 且有统计时写入，未启用时输出与既往完全一致
+        if self.llm_stats:
+            data["llm_stats"] = self.llm_stats
+        return data

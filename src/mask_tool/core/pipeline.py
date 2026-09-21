@@ -85,6 +85,11 @@ class Pipeline:
             lexicon, whitelist, ner_engine=ner_engine,
             manual_words=manual_words, regex_enabled=auto_detect_enabled,
         )
+        # P1：LLM 复核增强（cfg.llm 驱动，单点接线）。focused 模式语义为
+        # "仅信词库"，不接入；任何初始化失败回退纯规则模式（不抛出）
+        self.llm_stats = None
+        if config.llm.enabled and config.mode != "focused":
+            self.detector = self._wrap_with_llm(self.detector, config)
         self.policy = PolicyEngine(config)
         self.token_gen = TokenGenerator()
         self.masker = Masker(
@@ -93,6 +98,46 @@ class Pipeline:
             amount_mode=config.amount_mode,
             batch_id=self.batch_id,
         )
+
+    def _wrap_with_llm(self, detector: Detector, config: MaskConfig) -> Detector:
+        """按 cfg.llm 把规则检测器包装为 LLM 增强检测器。
+
+        base_url/model 缺失或初始化异常时警告并返回原检测器；
+    全部 adapters / extract / inspect 调用点零改动（包装继承 Detector）。
+        """
+        llm_cfg = config.llm
+        if not llm_cfg.base_url or not llm_cfg.model:
+            logger.warning(
+                "llm.enabled=true 但 base_url/model 未配置，回退纯规则模式"
+            )
+            return detector
+        try:
+            from mask_tool.core.llm.adjudicator import (
+                LLMAdjudicator, LLMRunStats,
+            )
+            from mask_tool.core.llm.client import OpenAICompatClient
+            from mask_tool.core.llm.detector_wrapper import LLMEnhancedDetector
+
+            client = OpenAICompatClient(
+                base_url=llm_cfg.base_url,
+                model=llm_cfg.model,
+                api_key=llm_cfg.api_key,
+                timeout=llm_cfg.timeout_seconds,
+            )
+            stats = LLMRunStats(model=llm_cfg.model, base_url=client.base_url)
+            self.llm_stats = stats
+            logger.info(
+                "LLM 复核已启用（%s @ %s，预算 %d 次调用，批大小 %d）",
+                llm_cfg.model, client.base_url,
+                llm_cfg.budget_max_calls, llm_cfg.batch_size,
+            )
+            return LLMEnhancedDetector(
+                detector, LLMAdjudicator(client, llm_cfg, stats=stats),
+            )
+        except Exception as exc:
+            self.llm_stats = None
+            logger.warning("LLM 增强初始化失败，回退纯规则模式: %s", exc)
+            return detector
 
     @property
     def engine(self) -> ReplacementEngine:
@@ -315,6 +360,11 @@ class Pipeline:
 
     def save_report(self, output_path: Path) -> None:
         """保存脱敏报告到JSON文件"""
+        # P1：LLM 统计写入报告（未启用/零调用时不写，输出与既往一致）
+        if self.llm_stats is not None and (
+            self.llm_stats.calls or self.llm_stats.errors
+        ):
+            self.report.llm_stats = self.llm_stats.to_dict()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(self.report.to_dict(), f, ensure_ascii=False, indent=2)

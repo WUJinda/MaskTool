@@ -27,6 +27,26 @@ class NERConfig:
 
 
 @dataclass
+class LLMConfig:
+    """LLM 增强检测配置（P1：OpenAI 兼容内网端点，默认关闭）
+
+    铁律：``enabled=False`` 时全链路行为与无 LLM 时完全一致。
+    端点兼容 Ollama / vLLM / Xinference / LMDeploy / One-API 类网关。
+    """
+    enabled: bool = False
+    role: str = "adjudicator"          # adjudicator / detector / both（P2 起后两者生效）
+    base_url: str = ""                 # 如 http://localhost:11434/v1
+    model: str = ""                    # 如 qwen3:8b / 内网服务注册名
+    api_key: str = ""                  # 内网通常留空；空时读环境变量 MASKTOOL_LLM_API_KEY
+    trusted_endpoint: bool = True      # 内网端点信任标记（不弹隐私确认）
+    batch_size: int = 20               # 每请求合并候选条数
+    max_concurrency: int = 2           # 并发上限（P1 串行，字段预留）
+    timeout_seconds: int = 30
+    budget_max_calls: int = 200        # 单次运行最大调用数（超出跳过后续）
+    cache: bool = True                 # 同 (text, source, type) 判定复用
+
+
+@dataclass
 class StorageConfig:
     """存储配置"""
     mapping_format: str = "json"
@@ -47,6 +67,7 @@ class MaskConfig:
     thresholds: Thresholds = field(default_factory=Thresholds)
     ocr: OCRConfig = field(default_factory=OCRConfig)
     ner: NERConfig = field(default_factory=NERConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     lexicon_path: str = "config/sample_lexicon.yaml"
@@ -76,6 +97,7 @@ class MaskConfig:
             thresholds=thresholds,
             ocr=ocr,
             ner=ner,
+            llm=LLMConfig(**data.get("llm", {})),
             storage=storage,
             performance=performance,
             lexicon_path=data.get("lexicon_path", "config/sample_lexicon.yaml"),

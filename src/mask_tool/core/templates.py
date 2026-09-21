@@ -35,6 +35,22 @@ ner:
   enabled: true            # 启用NER智能识别
   engine: jieba            # jieba（轻量）/ hanlp（高精度，需额外安装）
 
+# LLM 增强检测（P1：内网 OpenAI 兼容端点，默认关闭）
+# 兼容 Ollama / vLLM / Xinference / LMDeploy / One-API 类网关；
+# 仅增强 smart/aggressive 模式（focused 不接入）；关闭时行为与无此段一致
+llm:
+  enabled: false
+  role: adjudicator            # adjudicator（复核）/ detector / both（P2 起后两者生效）
+  base_url: ""                 # 如 http://localhost:11434/v1（内网端点）
+  model: ""                    # 如 qwen3:8b / 内网服务注册名
+  api_key: ""                  # 内网通常留空；空时读环境变量 MASKTOOL_LLM_API_KEY
+  trusted_endpoint: true       # 内网端点信任标记（不弹隐私确认）
+  batch_size: 20               # 每请求合并候选条数
+  max_concurrency: 2           # 并发上限（预留）
+  timeout_seconds: 30
+  budget_max_calls: 200        # 单次运行最大调用数（超出跳过后续）
+  cache: true                  # 同实体判定复用（跨段去重）
+
 # 存储配置
 storage:
   mapping_format: json  # json / sqlite

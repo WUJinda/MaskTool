@@ -142,7 +142,8 @@ def config_from_dict(data: dict, config_dir: str = "") -> MaskConfig:
     无法新增 from_data 入口）；字段增删时两处需同步。
     """
     from mask_tool.models.config import (
-        NERConfig, OCRConfig, PerformanceConfig, StorageConfig, Thresholds,
+        LLMConfig, NERConfig, OCRConfig, PerformanceConfig, StorageConfig,
+        Thresholds,
     )
     data = data or {}
     return MaskConfig(
@@ -150,6 +151,7 @@ def config_from_dict(data: dict, config_dir: str = "") -> MaskConfig:
         thresholds=Thresholds(**data.get("thresholds", {})),
         ocr=OCRConfig(**data.get("ocr", {})),
         ner=NERConfig(**data.get("ner", {})),
+        llm=LLMConfig(**data.get("llm", {})),
         storage=StorageConfig(**data.get("storage", {})),
         performance=PerformanceConfig(**data.get("performance", {})),
         lexicon_path=data.get("lexicon_path", "config/sample_lexicon.yaml"),

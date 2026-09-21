@@ -30,6 +30,7 @@ dependencies = [
     "pymupdf>=1.24.0",
     "rich>=13.0.0",
     "jieba>=0.42.1",
+    "requests>=2.28",
     # 锁 1.64.x：UI 层（CSS 覆盖 + 自定义组件）依赖 Streamlit 内部 DOM 结构
     # （data-testid 等），语义化版本承诺对其无效；minor 升级需人工回归后再放行
     "streamlit>=1.64,<1.65",
