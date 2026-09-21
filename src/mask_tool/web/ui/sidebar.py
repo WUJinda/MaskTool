@@ -17,7 +17,7 @@ def render_sidebar():
     """渲染侧边栏配置（v2.4：NER 恒启用；词库/保存位置/主题移入设置弹窗）"""
     with st.sidebar:
         st.markdown(
-            f'<div class="side-head"><span class="logo">{_logo_svg(22)}</span>'
+            f'<div class="side-head"><span class="logo">{_logo_svg(29)}</span>'
             f'<span class="name">mask-tool</span>'
             f'<span class="ver">v{__version__}</span></div>',
             unsafe_allow_html=True,
