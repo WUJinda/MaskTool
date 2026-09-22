@@ -51,6 +51,7 @@ TASK_STATE_KEYS = [
     "search_text", "batch_name_input", "pending_batch_id",
     "exclude_unchecked_to_whitelist", "whitelist_applied",
     "mask_dialog_token",
+    "ctx_locate_idx", "last_locate_seq", "_locate_doc_cache",  # R10 上下文定位
     "task_kind", "zip_tree_root", "zip_blocked_files",
     "dir_zip_upload", "restore_zip_upload",
 ]

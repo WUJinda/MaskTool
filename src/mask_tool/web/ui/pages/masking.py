@@ -13,6 +13,11 @@ from mask_tool.models.detection import DetectionStatus
 
 from ..artifacts import _mask_result_artifacts, _render_save_to_dir_panel
 from ..files import _file_icon
+from ..context_locate import (
+    _consume_grid_locate_click,
+    _context_locate_dialog,
+    _ctx_cell_renderer,
+)
 from ..history import _generate_batch_id
 from ..labels import (
     BLOCKED_EXTS,
@@ -444,6 +449,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
                 _row["AI 判定"] = _reason[:44] + ("…" if len(_reason) > 44 else "")
             _row["文件"] = Path(r.location.file).name if r.location.file else ""
             _row["上下文"] = r.context[:80] + "..." if len(r.context) > 80 else r.context
+            _row["loc"] = 0  # 隐藏列：上下文点击回传通道（context_locate.py）
             display_rows.append(_row)
 
         df_display = pd.DataFrame(display_rows)
@@ -451,6 +457,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         # 构建 AgGrid 配置（兼容不同版本的参数命名）
         gb = GridOptionsBuilder.from_dataframe(df_display)
         gb.configure_column("index", hide=True)
+        gb.configure_column("loc", hide=True)  # 上下文点击回传通道（隐藏）
         # “选择”列：布尔单元格 checkbox 编辑器；勾选变化作为“单元格值编辑”
         # 回传（VALUE_CHANGED），不走行选择（1.64 + st-aggrid 1.2.1 实测：
         # configure_selection 的 checkbox 落在被隐藏的 index 列上永远不可见，
@@ -459,12 +466,16 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         gb.configure_column("敏感信息", editable=False, width=200)
         gb.configure_column("类别", editable=False, width=92)
         gb.configure_column("来源", editable=False, width=88)
-        gb.configure_column("置信度", editable=False, type=["numericColumn"], precisionFormat=2, width=86)
+        gb.configure_column("置信度", editable=False, type=["numericColumn"], precisionFormat=2, width=104)
         gb.configure_column("处置", editable=False, width=96)
         if _has_llm:
             gb.configure_column("AI 判定", editable=False, width=220)
         gb.configure_column("文件", editable=False, width=168)
-        gb.configure_column("上下文", editable=False, width=380)
+        # 上下文列：可点击定位原文位置（cellRenderer 点击写隐藏 loc 列回传）
+        gb.configure_column(
+            "上下文", editable=False, width=380,
+            cellRenderer=_ctx_cell_renderer(),
+        )
         # 注：不配置行选择（configure_selection）——见上方“选择”列注释。
         # configure_pagination: 兼容不同版本
         try:
@@ -496,6 +507,12 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             server_sync_strategy="server_wins",
         )
 
+        # 上下文定位点击（R10）：先于勾选同步消费，防止同步分支的 rerun
+        # 丢弃点击标记；序号守卫保证同一点击只消费一次
+        _locate_click = _consume_grid_locate_click(grid_response)
+        if _locate_click is not None:
+            st.session_state["ctx_locate_idx"] = _locate_click
+
         # 从回传数据（编辑后的全表）同步勾选态；有变化立即 rerun，
         # 保证计数与表格一致（I6 问题3；选中项终审在执行确认对话框，R7）。
         # server_wins 下服务器推送不会更新组件 return_value：陈旧回传会在
@@ -522,6 +539,11 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
                 st.session_state["last_grid_sig"] = _sig
             if changed:
                 st.rerun()
+
+    # R10：上下文定位弹窗（点击表格「上下文」列后打开；右上角 ✕ 关闭时
+    # on_dismiss 回调清标记。放在表格区块外：筛选变化后仍可正常弹出）
+    if st.session_state.get("ctx_locate_idx") is not None:
+        _context_locate_dialog()
 
     # R9：未勾选项一键永久排除——勾选瞬间把当前所有未勾选的检测词
     # 写入白名单（去重），点「重新检测」后不再被识别；白名单可在
@@ -596,6 +618,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         st.rerun()
 
     if execute_btn:
+        # R10：关闭可能残留的定位弹窗标记（同轮只允许一个对话框）
+        st.session_state.pop("ctx_locate_idx", None)
         # 打开执行确认对话框（R7）；每次打开换新 token，对话框内 checkbox
         # 的 session key 带 token 前缀，避免上次弹窗的勾选态串扰本次
         st.session_state["mask_dialog_token"] = uuid4().hex[:8]

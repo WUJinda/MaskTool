@@ -123,7 +123,24 @@ def _inject_theme_bridge():
               + '.ag-floating-top,.ag-body-viewport,.ag-center-cols-container{{color:var(--ag-foreground-color)}}'
               + '.ag-picker-field-wrapper{{background:rgba(255,255,255,0.08);'
               + 'border-color:rgba(255,255,255,0.18);color:var(--ag-foreground-color)}}'
-              + '.ag-select .ag-picker-field-display{{color:var(--ag-foreground-color)}}';
+              + '.ag-select .ag-picker-field-display{{color:var(--ag-foreground-color)}}'
+              + '.mt-ctx-link{{color:#a7b4ff !important}}';
+            /* R10 上下文定位：可点击单元格样式（明暗同色：浅色直接品牌深紫，
+               深色由下方 AG_CSS 覆盖为亮紫；不用 --ag-accent-color——
+               theme='streamlit' 下它解析为 Streamlit 主题红而非品牌色） */
+            var CTX_CSS = '.mt-ctx-link{{color:#4c5fd7;'
+              + 'cursor:pointer;text-decoration:underline dotted rgba(91,110,232,.6);'
+              + 'text-underline-offset:3px;display:inline-flex;'
+              + 'align-items:center;gap:5px;width:100%;}}'
+              + '.mt-ctx-link .zi{{font-size:11px;opacity:.85;flex:none}}'
+              + '.mt-ctx-link .tx{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}'
+              + '.mt-ctx-link:hover{{filter:brightness(1.18);text-decoration-style:solid}}';
+            function ensureStyle(gd, id, css) {{
+              if (gd.getElementById(id)) return;
+              var s = gd.createElement('style');
+              s.id = id; s.textContent = css;
+              gd.head.appendChild(s);
+            }}
             function paintAg() {{
               var dark = d.documentElement.getAttribute('data-app-theme') === 'dark';
               for (var i = 0; i < d.querySelectorAll('iframe').length; i++) {{
@@ -132,12 +149,10 @@ def _inject_theme_bridge():
                 try {{
                   var gd = f.contentDocument;
                   if (!gd || !gd.head || !gd.querySelector('.ag-root-wrapper')) continue;
+                  ensureStyle(gd, 'mt-ctx-base', CTX_CSS);
                   var el = gd.getElementById('mt-ag-dark');
                   if (dark && !el) {{
-                    var s = gd.createElement('style');
-                    s.id = 'mt-ag-dark';
-                    s.textContent = AG_CSS;
-                    gd.head.appendChild(s);
+                    ensureStyle(gd, 'mt-ag-dark', AG_CSS);
                   }} else if (!dark && el) {{
                     el.parentNode.removeChild(el);
                   }}
