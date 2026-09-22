@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""恢复还原 tab：映射选择（历史/手动上传）、还原执行（单文件与目录 zip）。"""
+"""恢复还原 tab：映射选择（历史/手动上传）、还原执行（单文件与目录 zip）。
+
+UI 与脱敏主流程同一套设计系统（app.css）：步骤指示器 / up-title 双栏
+上传 / notice 空态引导 / expander+dataframe 映射预览，明暗主题随全局适配。
+"""
+import html as _html
 import json
 import shutil
 import tempfile
@@ -8,23 +13,56 @@ from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
 import streamlit as st
 
-from mask_tool.core.path_masker import PathMasker
+from mask_tool.core.path_masker import PathMasker, unique_name
 
 from ..artifacts import _render_save_to_dir_panel
-from ..files import _file_icon, _safe_unzip
+from ..files import _safe_unzip
 from ..history import _load_history
 from ..service import _unmask_file
+from .masking import render_steps
 
 # ──────────────────────────────────────────────
 # 标签页2：恢复还原
 # ──────────────────────────────────────────────
 
-def _render_restore_tab():
-    """渲染恢复还原标签页"""
+_RESTORE_STEPS = [
+    ("1", "🔑 选映射"),
+    ("2", "📤 传文件"),
+    ("3", "♻️ 执行还原"),
+]
 
-    # 检查是否有恢复结果需要展示
+
+def _restore_flow_step() -> int:
+    """恢复流程当前步骤（与脱敏侧同由会话状态推导，而非渲染位置）。
+
+    依据本轮交互前的控件值（radio/上传器 key）：已选映射来源且映射可加载
+    → 2 起步；已上传待还原文件 → 3。历史无记录时视为映射未就绪。
+    """
+    method = st.session_state.get("restore_method", "从历史记录恢复")
+    if method == "从历史记录恢复":
+        mapping_ready = bool(_load_history())
+    else:
+        mapping_ready = st.session_state.get("restore_mapping_file") is not None
+    if not mapping_ready:
+        return 1
+    has_files = (
+        bool(st.session_state.get("restore_masked_files"))
+        or st.session_state.get("restore_zip_upload") is not None
+    )
+    return 3 if has_files else 2
+
+
+def _render_restore_tab():
+    """渲染恢复还原标签页（与脱敏页同一套视觉语言）"""
+
+    # 面板锤点：隐藏标记，供 app.css 以 :has() 锚定本面板做垂直节奏
+    # 调优（stMarkdownContainer 默认 -16px 下边距会让自定义块互相侵入）
+    st.markdown('<div class="mt-restore-scope" hidden></div>', unsafe_allow_html=True)
+
+    # 恢复结果页（持久化到 session_state；风格对齐脱敏结果页）
     if "restore_result" in st.session_state:
         restore_result = st.session_state["restore_result"]
 
@@ -37,10 +75,11 @@ def _render_restore_tab():
         )
 
         # 保存到目标文件夹（桌面交付方式；浏览器下载入口已随桌面化移除）
+        st.markdown("#### 💾 保存还原文件")
         _render_save_to_dir_panel(
             artifacts=[("restored_files.zip", restore_result["zip_buffer"])],
             panel_key="restore",
-            not_set_what="恢复文件",
+            not_set_what="还原文件",
         )
 
         if st.button("🔄 返回", width="stretch"):
@@ -48,19 +87,23 @@ def _render_restore_tab():
             st.rerun()
         return
 
-    st.markdown("#### ♻️ 恢复还原")
-    st.caption("上传脱敏后的文件和映射表，将敏感信息还原为原始内容")
+    # ── 唯一步骤条：固定顶部，下滑始终可见（与脱敏页同构）──
+    render_steps(_restore_flow_step(), _RESTORE_STEPS)
 
-    st.markdown("---")
-
-    # 选择恢复方式
+    # 映射来源选择（还原钥匙）
+    st.markdown(
+        '<div class="mi-label"><b>🔑 映射表来源</b>'
+        '<span class="badge">还原钥匙，请妥善保管</span></div>',
+        unsafe_allow_html=True,
+    )
     restore_method = st.radio(
-        "选择恢复方式",
+        "映射表来源",
         options=["从历史记录恢复", "手动上传文件恢复"],
         horizontal=True,
+        label_visibility="collapsed",
+        key="restore_method",
     )
 
-    tokens: Optional[dict] = None
     mapping: Optional[dict] = None
 
     if restore_method == "从历史记录恢复":
@@ -77,60 +120,70 @@ def _render_restore_tab():
         st.warning("该批次没有映射数据")
         return
 
-    # 显示映射表预览
-    st.markdown("#### 📋 映射表预览")
-    preview_items = [
-        f"- `{token}` → `{original}`"
-        for token, original in list(tokens.items())[:20]
-    ]
-    st.markdown("\n".join(preview_items))
-    if len(tokens) > 20:
-        st.caption(f"... 共 {len(tokens)} 条映射")
+    # 映射表预览（与脱敏结果页映射表同构：expander + dataframe）
+    st.markdown(
+        '<div class="mi-label"><b>📋 映射表预览</b>'
+        f'<span class="badge">共 {len(tokens)} 条</span></div>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("展开查看 token → 原文对照", expanded=False):
+        st.dataframe(
+            pd.DataFrame({
+                "Token": list(tokens.keys()),
+                "原文": list(tokens.values()),
+            }),
+            width="stretch",
+            hide_index=True,
+        )
 
     st.markdown("---")
 
-    # 上传脱敏后的文件（I6 问题2：支持目录 masked zip 整批还原）
-    st.markdown("#### 📁 上传脱敏后的文件")
-    masked_files = st.file_uploader(
-        "上传需要恢复的脱敏文件",
-        type=["docx", "xlsx", "pptx", "pdf", "txt"],
-        accept_multiple_files=True,
-        label_visibility="collapsed",
-    )
-    restore_zip = st.file_uploader(
-        "或上传目录脱敏 zip（.zip）整批还原",
-        type=["zip"],
-        key="restore_zip_upload",
-        help="上传目录脱敏产物的 zip：内容与文件名/目录名一并还原，"
-             "输出同结构目录的 zip",
-    )
+    # ── Step 2: 上传脱敏后的文件（与脱敏页同构：左单文件 / 右目录 zip）──
+    up_cols = st.columns([1.35, 1])
+    with up_cols[0]:
+        st.markdown(
+            '<div class="up-title">📄 <b>单文件上传</b>'
+            '<span>支持多选 .docx / .xlsx / .pptx / .txt</span></div>',
+            unsafe_allow_html=True,
+        )
+        masked_files = st.file_uploader(
+            "上传需要恢复的脱敏文件",
+            type=["docx", "xlsx", "pptx", "txt"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+            key="restore_masked_files",
+        )
+    with up_cols[1]:
+        st.markdown(
+            '<div class="up-title">🗂️ <b>目录脱敏 zip</b>'
+            '<span>文件名与内容整批还原</span></div>',
+            unsafe_allow_html=True,
+        )
+        restore_zip = st.file_uploader(
+            "或上传目录脱敏 zip（.zip）",
+            type=["zip"],
+            key="restore_zip_upload",
+            label_visibility="collapsed",
+            help=("上传目录脱敏产物的 zip：内容与文件名/目录名一并还原，"
+                  "输出同结构目录的 zip"),
+        )
     if restore_zip is not None and masked_files:
         st.info("已同时上传单文件与目录 zip：本次按目录 zip 还原，单文件列表忽略")
 
     if not masked_files and restore_zip is None:
-        st.info("📤 请上传需要恢复的脱敏文件")
+        st.markdown(
+            '<div class="notice"><span class="ic">📤</span>'
+            '<div class="tx">请上传需要还原的脱敏文件'
+            '<small>单文件可选 .docx / .xlsx / .pptx / .txt；目录脱敏 zip 可整批还原</small>'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
         return
 
-    # 显示已上传文件（单文件列表 + 目录 zip）
-    shown_uploads = list(masked_files) + (
-        [restore_zip] if restore_zip is not None else []
-    )
-    if shown_uploads:
-        file_cols = st.columns(min(len(shown_uploads), 4))
-        for i, f in enumerate(shown_uploads):
-            with file_cols[i % len(file_cols)]:
-                icon = _file_icon(Path(f.name).suffix)
-                size_kb = f.size / 1024
-                st.markdown(
-                    f'<div class="file-card">'
-                    f'<span class="icon">{icon}</span>'
-                    f'<div><div class="name">{f.name}</div>'
-                    f'<div class="size">{size_kb:.1f} KB</div></div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+    # 已上传文件：由上传框内原生文件 chips 展示（含单个删除与追加，
+    # 交互完整）；不再另渲染自定义清单，避免同一信息双重呈现
 
-    # 执行恢复按钮
+    # ── Step 3: 执行还原 ──
     if st.button("♻️ 执行恢复", type="primary", width="stretch"):
         with st.spinner("正在恢复文件..."):
             if restore_zip is not None:
@@ -175,14 +228,18 @@ def _render_history_selector() -> Optional[dict]:
         st.warning("⚠️ 暂无历史记录，请先执行脱敏操作或选择手动上传方式")
         return None
 
-    st.markdown("#### 📚 历史记录")
+    st.markdown(
+        '<div class="up-title">📚 <b>历史批次</b>'
+        '<span>最近执行过的脱敏任务</span></div>',
+        unsafe_allow_html=True,
+    )
 
-    # 构建选择列表
+    # 构建选择列表（时间戳去掉 T 分隔，便于扫读）
     options = []
     for r in reversed(records):  # 最新的在前
         name_part = f" | {r.batch_name}" if r.batch_name else ""
         options.append(
-            f"{r.batch_id}{name_part} | {r.created_at[:19]} | "
+            f"{r.batch_id}{name_part} | {r.created_at[:19].replace('T', ' ')} | "
             f"{r.file_count}个文件 | {r.mask_count}项脱敏"
         )
 
@@ -190,6 +247,7 @@ def _render_history_selector() -> Optional[dict]:
         "选择批次",
         options=range(len(options)),
         format_func=lambda i: options[i],
+        label_visibility="collapsed",
     )
 
     # 获取选中的记录（倒序索引）
@@ -220,33 +278,36 @@ def _render_history_selector() -> Optional[dict]:
         st.warning("该批次没有映射数据")
         return None
 
-    # 显示批次详情
-    detail_cols = st.columns(4)
-    with detail_cols[0]:
-        st.metric("批次ID", record.batch_id)
-    with detail_cols[1]:
-        st.metric("批次名称", record.batch_name or "未命名")
-    with detail_cols[2]:
-        st.metric("文件数量", record.file_count)
-    with detail_cols[3]:
-        st.metric("脱敏项数", record.mask_count)
+    # 批次详情不另设摘要行：下拉框选中态始终完整显示
+    # 「批次ID | 名称 | 日期 | N个文件 | N项脱敏」，映射数由下方
+    # 「映射表预览 · 共 N 条」徽标承载，避免同信息二次表达
 
     return mapping_json
 
 
 def _render_manual_upload() -> Optional[dict]:
     """手动上传映射表，返回原始 mapping dict（含 tokens 与可选 paths 段）"""
-    st.markdown("#### 📋 上传映射表")
-    st.caption("请上传脱敏时生成的 mapping.json 文件")
+    st.markdown(
+        '<div class="up-title">📋 <b>上传映射表</b>'
+        '<span>脱敏时生成的 mapping.json</span></div>',
+        unsafe_allow_html=True,
+    )
 
     mapping_file = st.file_uploader(
         "上传映射表 JSON",
         type=["json"],
         label_visibility="collapsed",
+        key="restore_mapping_file",
     )
 
     if not mapping_file:
-        st.info("📤 请上传映射表 JSON 文件")
+        st.markdown(
+            '<div class="notice"><span class="ic">🔑</span>'
+            '<div class="tx">请上传脱敏时生成的 <b>mapping.json</b> 映射表'
+            '<small>可在脱敏结果的保存目录中找到；映射表是还原钥匙，请分开保管</small>'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
         return None
 
     try:
@@ -256,7 +317,10 @@ def _render_manual_upload() -> Optional[dict]:
         if not tokens:
             st.warning("映射表为空")
             return None
-        st.success(f"✅ 成功加载 {len(tokens)} 条映射")
+        st.markdown(
+            f'<div class="mi-count">已加载 <b>{len(tokens)}</b> 条映射</div>',
+            unsafe_allow_html=True,
+        )
         return mapping_json
     except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as e:
         st.error(f"映射表解析失败: {e}")
@@ -269,6 +333,11 @@ def _run_restore(masked_files, mapping: dict):
     mapping 为原始 mapping dict：tokens 段用于内容还原（保留 kind 字段，
     数字单元格可还原为数值，R1-A2）；paths 段（PathMasker.load_paths）
     用于把脱敏后的文件名还原为原主名。
+
+    重名防御：同名上传文件暂存名去重（原名仅用于 paths 匹配，不受暂存
+    改名影响）；输出名用 unique_name 消解——不同目录的同原名文件
+    （如 a/合同.docx 与 b/合同.docx）各自产出，不互相覆盖、不产生
+    zip 重复条目（与 unmask_tree 同一冲突消解语义）。
     """
     if isinstance(mapping, dict) and isinstance(mapping.get("tokens"), dict):
         raw_tokens = mapping["tokens"]           # 新版：{token: {original, kind, ...}}
@@ -280,7 +349,6 @@ def _run_restore(masked_files, mapping: dict):
         }
     else:
         raw_tokens = _mapping_to_tokens(mapping)  # 旧版：{token: original_str}
-    tokens = _mapping_to_tokens(mapping)          # 预览/存在性检查用
     paths = PathMasker.load_paths(mapping)
 
     tmp_dir = Path(tempfile.mkdtemp())
@@ -288,32 +356,44 @@ def _run_restore(masked_files, mapping: dict):
         output_dir = tmp_dir / "restored"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 保存上传文件到临时目录
-        saved_paths = []
+        # 暂存上传文件（同名去重；basename 归一防 API 途径带路径分隔符）
+        saved: List[tuple] = []                    # (原始上传名, 暂存路径)
+        taken_stage: set = set()
         for f in masked_files:
-            save_path = tmp_dir / f.name
+            original_name = Path(f.name).name
+            stage_name = unique_name(tmp_dir, original_name, taken_stage)
+            taken_stage.add(stage_name.casefold())
+            save_path = tmp_dir / stage_name
             with open(save_path, "wb") as fp:
                 fp.write(f.read())
-            saved_paths.append(save_path)
+            saved.append((original_name, save_path))
 
-        # 逐文件恢复
+        # 逐文件恢复（输出重名消解）
+        taken_out: set = set()
         output_files: List[Path] = []
-        for file_path in saved_paths:
+        for original_name, file_path in saved:
             suffix = file_path.suffix.lower()
-            if suffix not in {".docx", ".xlsx", ".pptx", ".pdf", ".txt"}:
-                st.warning(f"跳过不支持的文件类型: {file_path.name}")
+            if suffix == ".pdf":
+                st.warning(
+                    f"跳过 PDF 文件（PDF 还原未实现，脱敏侧也已停用）: {original_name}"
+                )
+                continue
+            if suffix not in {".docx", ".xlsx", ".pptx", ".txt"}:
+                st.warning(f"跳过不支持的文件类型: {original_name}")
                 continue
 
             # 输出名：paths 段有匹配记录（rel_new 文件名）→ 还原原主名；否则 _restored 后缀
             pm_record = next(
                 (m for m in paths
-                 if m.rel_new == file_path.name or Path(m.rel_new).name == file_path.name),
+                 if m.rel_new == original_name or Path(m.rel_new).name == original_name),
                 None,
             )
-            if pm_record is not None:
-                out_name = pm_record.old_name
-            else:
-                out_name = f"{file_path.stem}_restored{suffix}"
+            desired = (
+                pm_record.old_name if pm_record is not None
+                else f"{Path(original_name).stem}_restored{suffix}"
+            )
+            out_name = unique_name(output_dir, desired, taken_out)
+            taken_out.add(out_name.casefold())
 
             output_path = output_dir / out_name
             result = _unmask_file(file_path, output_path, raw_tokens)
@@ -330,24 +410,16 @@ def _run_restore(masked_files, mapping: dict):
             for fp in output_files:
                 zf.write(fp, fp.name)
 
-        zip_bytes = zip_buffer.getvalue()
-
-        # 存入 session_state
+        # 存入 session_state（结果页由 _render_restore_tab 读取渲染）
         st.session_state["restore_result"] = {
-            "zip_buffer": zip_bytes,
+            "zip_buffer": zip_buffer.getvalue(),
             "file_count": len(output_files),
         }
 
         st.rerun()
     finally:
-        # 临时目录用完即删
+        # 临时目录用完即删（zip bytes 已先取入 session）
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-
-    # 展示结果（rerun 后会到达下面的代码）
-    # 注意：由于上面已经 rerun，下面的代码不会执行
-    # 结果展示在 _render_restore_tab 中检查 restore_result
 
 
 def _run_restore_zip(zip_file, mapping: dict):

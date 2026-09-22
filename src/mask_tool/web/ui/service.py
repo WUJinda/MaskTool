@@ -213,8 +213,12 @@ def _unmask_file(input_path: Path, output_path: Path, tokens: dict) -> Optional[
         elif suffix == ".pptx":
             _unmask_pptx(input_path, output_path, tokens)
         else:
-            # 纯文本文件
-            text = input_path.read_text(encoding="utf-8")
+            # 纯文本文件（utf-8 优先；旧版产物常见 GBK/GB18030，回退后再还原）
+            raw = input_path.read_bytes()
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                text = raw.decode("gb18030", errors="replace")
             for token, entry in tokens.items():
                 original = (
                     entry.get("original", "") if isinstance(entry, dict) else entry

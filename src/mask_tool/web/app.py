@@ -154,10 +154,9 @@ def main():
     # 侧边栏
     mode, ner_enabled, irreversible, learn_words = render_sidebar()
 
-    # 标题（紧凑行：logo + 标题 + 副标题同行）
+    # 标题（紧凑行：logo + 标题；流程语义已由步骤条承载，不再重复副标题）
     st.markdown(
-        f'<div class="main-head">{_logo_svg(34)}<h1>文件脱敏</h1>'
-        f'<span class="sub">上传 → 智能检测 → 交互确认 → 一键脱敏保存</span></div>',
+        f'<div class="main-head">{_logo_svg(34)}<h1>文件脱敏</h1></div>',
         unsafe_allow_html=True,
     )
 

@@ -12,7 +12,6 @@ import yaml
 from mask_tool.models.detection import DetectionStatus
 
 from ..artifacts import _mask_result_artifacts, _render_save_to_dir_panel
-from ..files import _file_icon
 from ..context_locate import (
     _consume_grid_locate_click,
     _context_locate_dialog,
@@ -53,15 +52,20 @@ def _loading_overlay(title: str, sub: str):
     )
 
 
-def render_steps(current_step: int):
-    """渲染步骤指示器 (1-4；current_step=5 表示全部完成)：
-    节点连线式（数字圆点 + 渐变连线），卡片化 sticky 顶部"""
-    steps = [
-        ("1", "📤 上传"),
-        ("2", "🔍 检测"),
-        ("3", "✅ 确认选择"),
-        ("4", "💾 执行脱敏"),
-    ]
+def render_steps(current_step: int, steps=None):
+    """渲染步骤指示器（节点连线式：数字圆点 + 渐变连线，卡片化 sticky 顶部）。
+
+    steps: [(编号, 标签), ...]，缺省为脱敏主流程 4 步；
+    current_step 超过步数表示全部完成（如恢复还原结果页）。
+    其他页签（恢复还原）传入自己的步骤序列复用同一视觉。
+    """
+    if steps is None:
+        steps = [
+            ("1", "📤 上传"),
+            ("2", "🔍 检测"),
+            ("3", "✅ 确认选择"),
+            ("4", "💾 执行脱敏"),
+        ]
     step_html = '<div class="step-indicator">'
     for i, (num, label) in enumerate(steps):
         step_num = i + 1
@@ -159,14 +163,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
         )
         return
 
-    # 显示已上传文件（紧凑 chips，代替卡片网格）
-    chips_html = "".join(
-        f'<span class="fchip"><span class="fi">{_file_icon(Path(f.name).suffix)}</span>'
-        f'<span class="fn">{f.name}</span>'
-        f'<span class="fs">{f.size / 1024:.1f} KB</span></span>'
-        for f in uploaded_files
-    )
-    st.markdown(f'<div class="filelist">{chips_html}</div>', unsafe_allow_html=True)
+    # 已上传文件：由上传框内原生文件 chips 展示（含单个删除与追加按钮，
+    # 交互完整）；不再另渲染自定义清单，避免同一信息双重呈现
 
     # ── Step 2: 检测分析 ──
     st.markdown("---")

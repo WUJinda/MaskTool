@@ -10,7 +10,7 @@
  *   .stApp / .main / .block-container / .stButton button[kind]
  *   data-baseweb="popover|select" / ul[role="listbox"]
  * 自有命名空间（不受 Streamlit 升级影响）：
- *   .side-head .side-label .lex-chip .file-card .up-title .fchip .badge
+ *   .side-head .side-label .lex-chip .file-card .up-title .badge
  *  .step .step-arrow .ov .ov-breakdown .main-head .mi-label 等
  * ============================================================ */
 
@@ -403,6 +403,7 @@
 
     /* 上传引导提示条（替代 st.info，品牌紫风格） */
     .notice {
+        margin-top: 12px;
         display: flex; align-items: center; gap: 10px;
         background: rgba(91, 110, 232, 0.08);
         border: 1px solid rgba(91, 110, 232, 0.18);
@@ -451,12 +452,13 @@
         font-weight: 600 !important;
     }
     [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: 0.15rem; }
+    [data-testid="stTabs"] div[data-testid="stTabPanel"] { padding-top: 10px; }
 
     /* 上传区：并排双卡小标题 */
     .up-title {
         display: flex; align-items: baseline; gap: 0.5rem;
         font-size: 0.82rem; color: #4a5164;
-        margin-bottom: 0.1rem;
+        margin-bottom: 0.55rem;
     }
     .up-title b { font-size: 0.85rem; font-weight: 700; color: #1f2430; }
     .up-title span { font-size: 0.72rem; color: #9aa1ad; }
@@ -492,17 +494,6 @@
         border-color: #667eea !important; color: #4a5bd0 !important;
     }
 
-    /* 已上传文件 chips */
-    .filelist { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.3rem 0 0.1rem; }
-    .fchip {
-        display: inline-flex; align-items: center; gap: 0.45rem;
-        background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
-        padding: 0.3rem 0.7rem; font-size: 0.78rem;
-        box-shadow: 0 1px 2px rgba(20,25,60,.05);
-    }
-    .fchip .fi { font-size: 0.95rem; }
-    .fchip .fn { font-weight: 600; color: #333a48; }
-    .fchip .fs { color: #9aa1ad; font-size: 0.72rem; }
 
     /* 输入区标签 + 徽章 */
     .mi-label { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
@@ -635,12 +626,6 @@
     html[data-app-theme="dark"] .up-title b { color: #e8eaf2; }
     html[data-app-theme="dark"] .up-title span { color: #8a93a5; }
     html[data-app-theme="dark"] .mi-label b { color: #e8eaf2; }
-    html[data-app-theme="dark"] .fchip {
-        background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.13);
-        box-shadow: none;
-    }
-    html[data-app-theme="dark"] .fchip .fn { color: #dfe3ee; }
-    html[data-app-theme="dark"] .fchip .fs { color: #8a93a5; }
     html[data-app-theme="dark"] .badge { background: rgba(91,110,232,.25); color: #9fb0ff; }
     html[data-app-theme="dark"] .ov { background: #1a1d2e; border-color: rgba(255,255,255,.08); }
     html[data-app-theme="dark"] .ov-total .n { color: #7d8ff0; }
