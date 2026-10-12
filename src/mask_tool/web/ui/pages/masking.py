@@ -141,10 +141,11 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     if dir_zip is not None and uploaded_files:
         st.info("已同时上传单文件与目录 zip：本次按目录 zip 处理，单文件列表忽略")
 
-    if not uploaded_files:
+    if not uploaded_files and dir_zip is None:
         st.markdown(
             '<div class="notice"><span class="ic">📤</span>'
-            '<div class="tx">请上传需要脱敏的文件（支持 <b>.docx / .xlsx</b>）'
+            '<div class="tx">请上传需要脱敏的文件（支持 <b>.docx / .xlsx</b>，'
+            '或上传整个目录的 <b>.zip</b> 压缩包）'
             '<small>PPT 与 PDF 已暂时停用：检测到 .pptx / .pdf 文件将拒绝处理</small>'
             '</div></div>',
             unsafe_allow_html=True,
