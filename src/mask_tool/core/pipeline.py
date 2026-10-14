@@ -211,6 +211,18 @@ class Pipeline:
 
     def _scan_file_tokens(self, path: Path) -> Set[str]:
         scan = ReplacementEngine.scan_tokens
+        if path.suffix.lower() == ".pdf":
+            # PDF 二进制无法直读：fitz 提取全文本后扫描（失败静默跳过）
+            try:
+                import fitz
+
+                doc = fitz.open(str(path))
+                try:
+                    return scan("".join(page.get_text() for page in doc))
+                finally:
+                    doc.close()
+            except Exception:
+                return set()
         if path.suffix.lower() in {".docx", ".xlsx", ".xlsm", ".pptx"}:
             try:
                 with zipfile.ZipFile(path) as zf:
@@ -279,12 +291,14 @@ class Pipeline:
             engine.active_statuses = frozenset(statuses)
         engine.active_allowed_originals = allowed_originals
 
-        # 根据文件类型选择适配器（pptx/pdf 已屏蔽，方法保留不可达）
+        # 根据文件类型选择适配器（pptx 已屏蔽，方法保留不可达）
         try:
             if suffix == ".docx":
                 result = self._process_docx(input_path, batch_dir, output_name)
             elif suffix in (".xlsx", ".xlsm"):
                 result = self._process_xlsx(input_path, batch_dir, output_name)
+            elif suffix == ".pdf":
+                result = self._process_pdf(input_path, batch_dir, output_name)
             else:
                 return None
         finally:
@@ -357,18 +371,16 @@ class Pipeline:
         self.report.output_files.append(str(output_path))
         return output_path
 
-    def _process_pdf(self, input_path: Path, output_dir: Path) -> Path:
-        """处理PDF文档（已屏蔽不可达；代码保留不删。MVP: 仅提取文本并生成报告）"""
+    def _process_pdf(self, input_path: Path, batch_dir: Path,
+                     output_name: Optional[str] = None) -> Path:
+        """处理 PDF（方案 B：redaction 原位替换，PdfAdapter 标准路径）"""
         try:
             from mask_tool.adapters.pdf_adapter import PdfAdapter
         except ImportError:
             raise RuntimeError(
                 "PDF处理需要安装PyMuPDF: pip install pymupdf"
             )
-        adapter = PdfAdapter(self.detector, self.policy)
-        output_path = adapter.process(input_path, output_dir)
-        self.report.output_files.append(str(output_path))
-        return output_path
+        return self._run_adapter(PdfAdapter, input_path, batch_dir, output_name)
 
     def save_mapping(self, output_path: Path) -> None:
         """保存映射表到JSON文件（metadata 含批次信息，M3/M4）"""

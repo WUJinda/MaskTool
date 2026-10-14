@@ -57,8 +57,8 @@ def _safe_unzip(zip_bytes: bytes, dest: Path) -> Path:
 
 
 def _classify_tree_files(tree_root: Path) -> Dict[str, List[Path]]:
-    """遍历解压根，按处理面分类：docs（docx/xlsx 待脱敏）、
-    blocked（pptx/pdf 等屏蔽类型，警告且不进产物）、others（其余原样拷入）。"""
+    """遍历解压根，按处理面分类：docs（docx/xlsx/xlsm/pdf 待脱敏）、
+    blocked（pptx 等屏蔽类型，警告且不进产物）、others（其余原样拷入）。"""
     docs: List[Path] = []
     blocked: List[Path] = []
     others: List[Path] = []
@@ -98,14 +98,9 @@ def _extract_text(file_path: Path) -> str:
                                 texts.append(cell.text)
             return "\n".join(texts)
         if suffix == ".pdf":
-            try:
-                import fitz
-                doc = fitz.open(str(file_path))
-                texts = [page.get_text() for page in doc]
-                doc.close()
-                return "\n".join(texts)
-            except ImportError:
-                return ""
+            # 与 adapter 处理面同源（块级提取；extract_texts 内含加密守卫）
+            from mask_tool.adapters.extract import extract_texts
+            return extract_texts(file_path)
     except Exception:
         return ""
     return ""

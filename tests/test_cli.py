@@ -234,20 +234,23 @@ class TestBlockedFormats:
         assert "PPT" in flat and "跳过" in flat
 
     def test_dir_mode_blocked_not_copied(self, runner):
+        """目录模式：pptx 屏蔽警告不进产物；损坏 PDF 打开失败同样不进
+        产物（PDF 已放开支持，文本型 PDF 正常处理，见
+        tests/test_pdf_support.py）。"""
         _write_config_dir()
         src_dir = Path("资料")
         src_dir.mkdir()
         _make_docx(src_dir / "a.docx", ["张三"])
-        (src_dir / "b.pdf").write_bytes(b"%PDF-fake")
+        (src_dir / "b.pdf").write_bytes(b"%PDF-fake")  # 损坏 PDF
         (src_dir / "c.pptx").write_bytes(b"PK-fake")
         result = runner.invoke(app, ["mask", str(src_dir), "--output", "out"])
         assert result.exit_code == 0
         tree = _batch_dirs(Path("out"))[0] / src_dir.name
         assert (tree / "a.docx").exists()
-        assert not (tree / "b.pdf").exists()
-        assert not (tree / "c.pptx").exists()
+        assert not (tree / "b.pdf").exists()   # 损坏 PDF 处理失败不进产物
+        assert not (tree / "c.pptx").exists()  # 屏蔽类型不进产物
         flat = _flat(result.output)
-        assert "PDF脱敏暂未开放" in flat or "PDF 脱敏暂未开放" in flat
+        assert "PPT" in flat and "跳过" in flat  # pptx 屏蔽警告仍在
 
 
 # ---------------------------------------------------------------------------

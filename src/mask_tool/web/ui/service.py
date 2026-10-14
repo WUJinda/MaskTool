@@ -202,7 +202,7 @@ def _unmask_file(input_path: Path, output_path: Path, tokens: dict) -> Optional[
     """
     suffix = input_path.suffix.lower()
     try:
-        if suffix in (".docx", ".xlsx"):
+        if suffix in (".docx", ".xlsx", ".xlsm", ".pdf"):
             from mask_tool.adapters.restore import restore_file_content
 
             token_map = {
@@ -249,7 +249,7 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
     （NER/正则/词库）全部关闭，仅剩手动词。手动词条目置顶展示。
 
     I6 问题2：zip_file 提供时按目录任务处理——安全解压（穿越/炸弹防护）
-    后递归检测 docx/xlsx（含文件名），屏蔽类型警告并登记不进产物。
+    后递归检测 docx/xlsx/xlsm/pdf（含文件名），屏蔽类型警告并登记不进产物。
     """
     # 新一轮检测：旧勾选/学习集索引已失效，先行重置（防止残留索引
     # 误读新结果集——learn_set 旧索引会把不相关的词写进词库文件）

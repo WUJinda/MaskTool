@@ -28,7 +28,7 @@ def extract_texts(file_path) -> str:
     """提取全部件纯文本（换行拼接；通用检测 / unmask 对账扫描用）。
 
     与 ``mask_tool.cli._extract_text`` 语义一致并扩展了 xlsx 盲区部件；
-    pptx/pdf 已屏蔽，遇到时抛 ValueError（与 CLI 现行为一致）。
+    pptx 已屏蔽，遇到时抛 ValueError（与 CLI 现行为一致）。
     """
     file_path = Path(file_path)
     suffix = file_path.suffix.lower()
@@ -37,7 +37,9 @@ def extract_texts(file_path) -> str:
         return "\n".join(DocxAdapter.extract_paragraph_texts(file_path))
     if suffix in (".xlsx", ".xlsm"):
         return "\n".join(extract_xlsx_texts(file_path))
-    if suffix in (".pptx", ".pdf"):
+    if suffix == ".pdf":
+        return "\n".join(extract_pdf_texts(file_path))
+    if suffix == ".pptx":
         raise ValueError(
             f"{suffix} 脱敏暂未开放，无法检测（见 core/formats.py BLOCKED_EXTS）"
         )
@@ -61,7 +63,53 @@ def detect_file_results(file_path, detector, policy) -> List[DetectionResult]:
             results.extend(detector.detect(para, file_path_str))
     elif suffix in (".xlsx", ".xlsm"):
         results.extend(_detect_xlsx_results(file_path, detector))
+    elif suffix == ".pdf":
+        results.extend(_detect_pdf_results(file_path, detector))
     return policy.apply(results)
+
+
+def _detect_pdf_results(file_path: Path, detector) -> List[DetectionResult]:
+    """PDF 检测面：逐页逐块 detect（块遍历与 PdfAdapter 处理面同源）。"""
+    import fitz
+
+    from mask_tool.adapters.pdf_adapter import iter_pdf_text_blocks
+
+    file_path_str = str(file_path)
+    results: List[DetectionResult] = []
+    doc = fitz.open(file_path_str)
+    try:
+        if doc.is_encrypted:
+            raise ValueError("PDF 已加密，无法检测（请先解除密码保护）")
+        for pno, page in enumerate(doc):
+            loc = Location(file=file_path_str, page=pno + 1)
+            for full, _spans in iter_pdf_text_blocks(page):
+                page_results = detector.detect(full, file_path_str)
+                for r in page_results:
+                    r.location = loc
+                    if not r.context.startswith("["):
+                        r.context = f"[第{pno + 1}页] {r.context}"
+                results.extend(page_results)
+    finally:
+        doc.close()
+    return results
+
+
+def extract_pdf_texts(file_path) -> List[str]:
+    """提取 PDF 全部文本块（检测面 = PdfAdapter 处理面，R1-A1）。"""
+    import fitz
+    from mask_tool.adapters.pdf_adapter import iter_pdf_text_blocks
+
+    doc = fitz.open(str(file_path))
+    try:
+        if doc.is_encrypted:
+            raise ValueError("PDF 已加密，无法提取（请先解除密码保护）")
+        texts: List[str] = []
+        for page in doc:
+            for full, _spans in iter_pdf_text_blocks(page):
+                texts.append(full)
+        return texts
+    finally:
+        doc.close()
 
 
 # ---------------------------------------------------------------------------

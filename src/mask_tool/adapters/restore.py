@@ -31,8 +31,62 @@ def restore_file_content(f: Path, output_path: Path, token_map: Dict[str, dict])
         DocxAdapter.restore_document(f, output_path, token_map)
     elif suffix in (".xlsx", ".xlsm"):
         restore_xlsx_file(f, output_path, token_map)
+    elif suffix == ".pdf":
+        restore_pdf_file(f, output_path, token_map)
     else:
         raise ValueError(f"不支持的还原格式: {suffix}")
+
+
+def restore_pdf_file(
+    input_path: Path, output_path: Path, token_map: Dict[str, dict],
+) -> None:
+    """PDF 内容还原：逐页搜索 token → redaction 擦除 → 原位插回原文。
+
+    原文可能含中文，用 PyMuPDF 内置 CJK 字体（china-s）插回；插入区宽度
+    只有原 token 的宽度，长原文缩小字号至下限后允许溢出（还原排版是
+    近似的，可读性优先）。"""
+    import fitz
+
+    from mask_tool.adapters.pdf_adapter import (
+        _apply_edits, _block_common_size, _collect_edit, iter_pdf_text_blocks,
+    )
+
+    doc = fitz.open(str(input_path))
+    try:
+        if doc.is_encrypted:
+            raise ValueError("PDF 已加密，无法还原（请先解除密码保护）")
+        for page in doc:
+            edits = []
+            originals = []
+            for full, chars in iter_pdf_text_blocks(page):
+                hits = [
+                    (token, entry)
+                    for token, entry in token_map.items()
+                    if token and token in full
+                ]
+                if not hits:
+                    continue
+                # 插入字号用块内众数（正常文本字号），token 缩小字号不传染
+                common_size = _block_common_size(chars)
+                for token, entry in hits:
+                    original = (
+                        entry.get("original", "")
+                        if isinstance(entry, dict) else str(entry)
+                    )
+                    pos = full.find(token)
+                    while pos != -1:
+                        edit = _collect_edit(chars, pos, pos + len(token))
+                        if edit is not None:
+                            if edit["size"] < common_size:
+                                edit["size"] = common_size
+                            edits.append(edit)
+                            originals.append(original)
+                        pos = full.find(token, pos + 1)
+            if edits:
+                _apply_edits(page, edits, originals, fontname="china-s")
+        doc.save(str(output_path), garbage=3, deflate=True)
+    finally:
+        doc.close()
 
 
 def restore_xlsx_file(
