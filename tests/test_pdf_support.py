@@ -174,6 +174,28 @@ class TestMask:
                               output_name="改名后.pdf")
         assert out.name == "改名后.pdf"
 
+    def test_short_hit_no_neighbor_damage_on_restore(self, tmp_path):
+        """短命中区溢出收敛（对抗审查 P1-1）：窄命中区（2 字中文 9pt）
+        塞长 token 时字号自适应不溢出伤邻；还原时右邻窄字形不被连带
+        删除（审查实测 redact 相交≥1pt 即整字删除）。"""
+        pdf = _make_pdf(tmp_path / "窄命中.pdf", [
+            [("复审由李四ilte核验通过", 9)],   # 9pt：命中区 18pt，token 需 ≤2.8pt
+        ])
+        adapter, masker = _make_adapter()
+        masked = adapter.process(pdf, tmp_path / "out")
+        after_mask = _full_text(masked)
+        # 脱敏后右邻窄字形保留
+        assert "ilte" in after_mask, "脱敏时右邻窄字形被覆盖/擦除"
+
+        token_map = {m.token: {"original": m.original} for m in masker.mappings}
+        restored = tmp_path / "窄命中_restored.pdf"
+        restore_file_content(masked, restored, token_map)
+        after_restore = _full_text(restored)
+        # 还原后右邻窄字形仍保留（不触发 ≥1pt 相交连带删除）
+        assert "ilte" in after_restore, "还原时右邻窄字形被连带删除"
+        assert "核验通过" in after_restore
+        assert "李四" in after_restore
+
 
 # ---------------------------------------------------------------------------
 # 边界守卫

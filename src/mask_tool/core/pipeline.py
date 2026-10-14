@@ -212,13 +212,21 @@ class Pipeline:
     def _scan_file_tokens(self, path: Path) -> Set[str]:
         scan = ReplacementEngine.scan_tokens
         if path.suffix.lower() == ".pdf":
-            # PDF 二进制无法直读：fitz 提取全文本后扫描（失败静默跳过）
+            # PDF 二进制无法直读；与处理面同口径用 iter_pdf_text_blocks
+            # 拼接（rawdict 块拼接无换行符，与 get_text 的 \n 拼接口径不同，
+            # 避免跨行拆开的天然 token 样式串漏登记——对抗审查 P3-4）
             try:
                 import fitz
 
+                from mask_tool.adapters.pdf_adapter import iter_pdf_text_blocks
+
                 doc = fitz.open(str(path))
                 try:
-                    return scan("".join(page.get_text() for page in doc))
+                    chunks = []
+                    for page in doc:
+                        for full, _chars in iter_pdf_text_blocks(page):
+                            chunks.append(full)
+                    return scan("".join(chunks))
                 finally:
                     doc.close()
             except Exception:

@@ -28,10 +28,11 @@ logger: Logger = getLogger("mask_tool")
 
 # redact 矩形微扩（字符 bbox 偶尔不含边缘；过大会误伤邻字）
 _RECT_PAD = 0.15
-# 字号自适应下限：短命中区塞长 token 的极限（如 2 个中文字塞 12 字符
-# token 需缩到 1/3 字号）；保证不溢出——溢出会覆盖右邻文本，还原 redact
-# 时连带误擦（探针验证发现的缺陷）
-_MIN_FONT_SIZE = 3.0
+# 字号自适应下限：短命中区塞长 token 的极限。实测 9pt 正文 2 字中文
+# 命中区（18pt）需 ≤2.8pt 才能塞下 [PERSON_001]；1.5pt 下限覆盖绝大多数
+# 场景，最坏溢出 <1pt（还原侧 pad=0 配合后不触发"相交≥1pt 整字连带
+# 删除"的误删阈值——对抗审查 P1-1 实测标定）
+_MIN_FONT_SIZE = 1.5
 
 
 def iter_pdf_text_blocks(page) -> Iterator[Tuple[str, List[Tuple[int, int, dict, dict]]]]:
@@ -59,7 +60,7 @@ def iter_pdf_text_blocks(page) -> Iterator[Tuple[str, List[Tuple[int, int, dict,
             yield full, chars
 
 
-def _collect_edit(chars, start: int, end: int) -> Optional[dict]:
+def _collect_edit(chars, start: int, end: int, pad: float = _RECT_PAD) -> Optional[dict]:
     """把块内字符区间 [start, end) 汇总为一次编辑（redact 矩形 + 插入参数）。
 
     Returns:
@@ -76,8 +77,7 @@ def _collect_edit(chars, start: int, end: int) -> Optional[dict]:
     first_a, _first_b, first_ch, first_span = covered[0]
     rects = []
     for _a, _b, ch, _s in covered:
-        rects.append(fitz.Rect(ch["bbox"]) + (-_RECT_PAD, -_RECT_PAD,
-                                              _RECT_PAD, _RECT_PAD))
+        rects.append(fitz.Rect(ch["bbox"]) + (-pad, -pad, pad, pad))
     # 宽度预算：首字符所在行的覆盖宽度（跨行命中时 token 插在首行）
     first_y0 = first_ch["bbox"][1]
     same_line = [ch for (_a, _b, ch, _s) in covered
@@ -142,6 +142,60 @@ def _apply_edits(page, edits: List[dict], texts: List[str],
     for edit, text in zip(edits, texts):
         _insert_text(page, edit["origin"], edit["size"], edit["width"],
                      text, fontname=fontname)
+
+
+def pdf_structure_warnings(path) -> list:
+    """PDF 结构边界检查（对抗审查 P1-2/P2-1/P2-3，检测阶段 UI 触达）。
+
+    adapter 侧的 logger 告警在桌面版（pythonw 无控制台）不可见；本函数
+    把"不在处理面但用户应知"的边界汇总为面向用户的警告文案：
+    - 行级文本对象（每块仅一行）：跨 block 拆开的敏感词漏检风险
+    - 乱码提取（U+FFFD 占比高，疑似缺 ToUnicode）：检测结果不可信
+    - 批注/表单域：不在处理面（检测面=处理面，但用户需知其存在）
+    """
+    import fitz
+
+    from collections import Counter
+
+    warns: list = []
+    doc = fitz.open(str(path))
+    try:
+        n_blocks = 0
+        total_chars = 0
+        n_replacement = 0
+        n_annot = 0
+        n_widget = 0
+        n_img_page = 0
+        for page in doc:
+            for full, _chars in iter_pdf_text_blocks(page):
+                n_blocks += 1
+                total_chars += len(full)
+                n_replacement += full.count("\ufffd")
+            n_annot += sum(1 for _ in (page.annots() or []))
+            n_widget += sum(1 for _ in (page.widgets() or []))
+            if page.get_images(full=False):
+                n_img_page += 1
+        if n_blocks >= 20 and total_chars / max(n_blocks, 1) <= 30:
+            warns.append(
+                "该 PDF 为行级文本对象（表单/OCR 文本层常见）：跨行拆开的"
+                "敏感词可能漏检，建议人工复核"
+            )
+        if total_chars > 0 and n_replacement / total_chars > 0.05:
+            warns.append(
+                "部分文本无法正确解码（疑似字体映射缺失）：检测结果可能"
+                "不可信，建议人工复核"
+            )
+        if n_annot:
+            warns.append(f"含 {n_annot} 条批注：批注文本不在脱敏范围，请人工确认")
+        if n_widget:
+            warns.append(f"含 {n_widget} 个表单域：表单内容不在脱敏范围，请人工确认")
+        if doc.page_count() >= 2 and n_img_page == doc.page_count():
+            warns.append("每页都含图片：图片内文字不在脱敏范围，请人工确认")
+    except Exception:
+        pass  # 结构检查尽力而为，不影响主流程
+    finally:
+        doc.close()
+    return warns
 
 
 class PdfAdapter(FileAdapter):

@@ -373,12 +373,10 @@ def _run_restore(masked_files, mapping: dict):
         output_files: List[Path] = []
         for original_name, file_path in saved:
             suffix = file_path.suffix.lower()
-            if suffix == ".pdf":
-                st.warning(
-                    f"跳过 PDF 文件（PDF 还原未实现，脱敏侧也已停用）: {original_name}"
-                )
-                continue
-            if suffix not in {".docx", ".xlsx", ".pptx", ".txt"}:
+            # 还原分发底层 _unmask_file 已支持 docx/xlsx/xlsm/pdf
+            # （pptx 走 _unmask_pptx，txt 走纯文本替换）
+            if suffix not in {".docx", ".xlsx", ".xlsm", ".pdf",
+                              ".pptx", ".txt"}:
                 st.warning(f"跳过不支持的文件类型: {original_name}")
                 continue
 
@@ -465,7 +463,7 @@ def _run_restore_zip(zip_file, mapping: dict):
                 continue  # 映射表不进还原产物
             dest = restored_root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if f.suffix.lower() in (".docx", ".xlsx"):
+            if f.suffix.lower() in (".docx", ".xlsx", ".xlsm", ".pdf"):
                 try:
                     restore_file_content(f, dest, token_map)
                     restored_files += 1

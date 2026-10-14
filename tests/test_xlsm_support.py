@@ -52,7 +52,11 @@ def _make_xlsx_bytes(cells: dict) -> bytes:
 
 def _make_xlsm_bytes(cells: dict, vba: bytes = VBA_BYTES) -> bytes:
     """xlsx 重打包为 xlsm：workbook content type 改 macroEnabled +
-    bin Default 声明 + 植入 vbaProject.bin（openpyxl keep_vba 原样复制）。"""
+    bin Default 声明 + 植入 vbaProject.bin（openpyxl keep_vba 原样复制）。
+    注：真实包的 workbook 类型是
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml，
+    替换源串取其稳定后缀段（对抗审查 P2-1：原写法永不命中，样本
+    content type 实为 xlsx，测试仅因 openpyxl 无条件缓存 vba_archive 而通过）。"""
     src = zipfile.ZipFile(BytesIO(_make_xlsx_bytes(cells)))
     out = BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
@@ -60,10 +64,18 @@ def _make_xlsm_bytes(cells: dict, vba: bytes = VBA_BYTES) -> bytes:
             data = src.read(name)
             if name == "[Content_Types].xml":
                 text = data.decode("utf-8")
-                text = text.replace(
-                    "application/vnd.ms-excel.sheet.main+xml",
-                    "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+                # 标准 xlsm workbook 类型（ECMA-376/MS-XLSX，openpyxl
+                # EXCEL_TYPES 白名单校验）：openxmlformats...sheet.main+xml
+                # → vnd.ms-excel.sheet.macroEnabled.main+xml
+                _xlsx_main = (
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet.main+xml"
                 )
+                _xlsm_main = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+                assert _xlsx_main in text, (
+                    "xlsx 样本 workbook 类型串变化，构造方法需同步更新"
+                )
+                text = text.replace(_xlsx_main, _xlsm_main)
                 text = text.replace(
                     '<Default Extension="xml"',
                     '<Default Extension="bin" '
@@ -74,6 +86,10 @@ def _make_xlsm_bytes(cells: dict, vba: bytes = VBA_BYTES) -> bytes:
             dst.writestr(name, data)
         dst.writestr("xl/vbaProject.bin", vba)
     src.close()
+    # 样本必须是真正的 xlsm（macroEnabled），否则测试代表性不足
+    with zipfile.ZipFile(out) as verify:
+        ct = verify.read("[Content_Types].xml").decode("utf-8")
+        assert "macroEnabled" in ct
     return out.getvalue()
 
 

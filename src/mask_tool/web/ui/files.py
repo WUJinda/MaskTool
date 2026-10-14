@@ -56,6 +56,32 @@ def _safe_unzip(zip_bytes: bytes, dest: Path) -> Path:
     return root
 
 
+def _xlsm_macro_warnings(paths) -> List[str]:
+    """对含 VBA 宏的 xlsm 输入生成 UI 警告（对抗审查 P1-2）。
+
+    adapter 侧的 logger 告警在桌面版（pythonw 无控制台）不可见；
+    检测阶段即向用户明示"宏代码内容不参与脱敏"边界。
+    """
+    import zipfile
+
+    macro_files = []
+    for p in paths:
+        try:
+            if Path(p).suffix.lower() != ".xlsm":
+                continue
+            with zipfile.ZipFile(str(p)) as z:
+                if "xl/vbaProject.bin" in z.namelist():
+                    macro_files.append(Path(p).name)
+        except Exception:
+            continue
+    if macro_files:
+        return [
+            "以下带宏文件（" + "、".join(macro_files) + "）的宏代码内容不参与"
+            "脱敏（宏部件原样保留），请人工确认宏内无敏感信息"
+        ]
+    return []
+
+
 def _classify_tree_files(tree_root: Path) -> Dict[str, List[Path]]:
     """遍历解压根，按处理面分类：docs（docx/xlsx/xlsm/pdf 待脱敏）、
     blocked（pptx 等屏蔽类型，警告且不进产物）、others（其余原样拷入）。"""

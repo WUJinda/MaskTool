@@ -24,7 +24,7 @@ from mask_tool.core.pipeline import Pipeline
 from mask_tool.models.config import MaskConfig
 from mask_tool.models.detection import DetectionResult, DetectionStatus
 
-from .files import _classify_tree_files, _safe_unzip
+from .files import _classify_tree_files, _safe_unzip, _xlsm_macro_warnings
 from .history import BatchRecord, _add_history
 from .labels import BLOCKED_EXTS, SUPPORTED_MASK_EXTS, TYPE_LABELS
 from .state import _dedup_results
@@ -309,13 +309,28 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
         saved_paths = classified["docs"]
         zip_tree_root = str(tree_root)
         if not saved_paths:
-            st.warning("压缩包内没有可处理的 docx/xlsx 文件")
+            st.warning("压缩包内没有可处理的 docx/xlsx/xlsm/pdf 文件")
     else:
         for f in uploaded_files:
             save_path = tmp_dir / f.name
             with open(save_path, "wb") as fp:
                 fp.write(f.read())
             saved_paths.append(save_path)
+
+    # 结构边界警告（对抗审查 P1-2/P2-1/P2-3）：adapter 侧 logger 告警
+    # 在桌面版（pythonw 无控制台）不可见，检测阶段即向用户明示——
+    # xlsm 宏内容不参与脱敏；PDF 行级文本/乱码/批注表单不在处理面
+    for w in _xlsm_macro_warnings(saved_paths):
+        st.warning(w)
+    for p in saved_paths:
+        if p.suffix.lower() == ".pdf":
+            try:
+                from mask_tool.adapters.pdf_adapter import pdf_structure_warnings
+
+                for w in pdf_structure_warnings(p):
+                    st.warning(f"{p.name}：{w}")
+            except Exception:
+                pass  # 结构检查尽力而为
 
     # 文件名脱敏器（检测阶段仅用其 detect_name；与后续脱敏共享组件）
     token_gen = getattr(pipeline, "token_gen", None) or getattr(

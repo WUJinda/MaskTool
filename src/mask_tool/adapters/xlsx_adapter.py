@@ -69,7 +69,7 @@ _AT_RISK_PARTS: tuple = (
     ("xl/oleObject", "OLE 对象", "不支持，其内容不在脱敏范围"),
     ("xl/ctrlProps/", "表单控件属性", "不支持"),
     ("xl/activeX/", "ActiveX 控件", "不支持"),
-    ("xl/customXml/", "自定义 XML 部件", "不支持，其内容不在脱敏范围"),
+    ("xl/customXml/", "自定义 XML 部件", "不支持，保存时该部件将被丢弃，其内容不在脱敏范围"),
 )
 
 # zip 预检：尽力保留但不纳入往返保证的部件

@@ -75,7 +75,11 @@ def restore_pdf_file(
                     )
                     pos = full.find(token)
                     while pos != -1:
-                        edit = _collect_edit(chars, pos, pos + len(token))
+                        # pad=0：token 字符是本工具插入的、bbox 精确覆盖实际
+                        # 渲染字形；不外扩，溢出部分对右邻的相交压到最小
+                        # （对抗审查 P1-1：≥1pt 相交即整字连带删除）
+                        edit = _collect_edit(chars, pos, pos + len(token),
+                                             pad=0.0)
                         if edit is not None:
                             if edit["size"] < common_size:
                                 edit["size"] = common_size
