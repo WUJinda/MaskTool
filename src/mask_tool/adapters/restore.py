@@ -29,7 +29,7 @@ def restore_file_content(f: Path, output_path: Path, token_map: Dict[str, dict])
         from mask_tool.adapters.docx_adapter import DocxAdapter
 
         DocxAdapter.restore_document(f, output_path, token_map)
-    elif suffix == ".xlsx":
+    elif suffix in (".xlsx", ".xlsm"):
         restore_xlsx_file(f, output_path, token_map)
     else:
         raise ValueError(f"不支持的还原格式: {suffix}")
@@ -38,15 +38,17 @@ def restore_file_content(f: Path, output_path: Path, token_map: Dict[str, dict])
 def restore_xlsx_file(
     input_path: Path, output_path: Path, token_map: Dict[str, dict],
 ) -> None:
-    """xlsx 内容还原（D2 §6.1）：单元格/富文本块/公式串/ArrayFormula/批注/
+    """xlsx/xlsm 内容还原（D2 §6.1）：单元格/富文本块/公式串/ArrayFormula/批注/
     页眉脚/数据验证 list/定义名称值+备注/超链接 tooltip 走
-    XlsxAdapter.restore_value，kind=number 的整值 token 还原为数值。"""
+    XlsxAdapter.restore_value，kind=number 的整值 token 还原为数值。
+    xlsm 的 VBA 宏部件经 keep_vba 原样保留（与脱敏侧对称）。"""
     from openpyxl import load_workbook
     from openpyxl.cell.cell import MergedCell
     from openpyxl.cell.rich_text import CellRichText
     from mask_tool.adapters.xlsx_adapter import XlsxAdapter
 
-    wb = load_workbook(str(input_path), rich_text=True)
+    keep_vba = input_path.suffix.lower() == ".xlsm"
+    wb = load_workbook(str(input_path), rich_text=True, keep_vba=keep_vba)
 
     def restore_text(text: str):
         value, hits = XlsxAdapter.restore_value(text, token_map)

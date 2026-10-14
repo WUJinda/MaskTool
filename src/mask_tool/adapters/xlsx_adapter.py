@@ -78,12 +78,16 @@ _BEST_EFFORT_PARTS: tuple = (
     ("xl/media/", "图片"),
 )
 
+# xlsm 宏部件：keep_vba 保存时原样保留（字节不变），但宏源码内容
+# 不参与脱敏（OLE 压缩二进制无可靠替换路径）——预检明示边界
+_VBA_PART = ("xl/vbaProject.bin", "VBA 宏")
+
 
 class XlsxAdapter(FileAdapter):
-    """Excel 文档脱敏适配器"""
+    """Excel 文档脱敏适配器（.xlsx / .xlsm）"""
 
     def supported_extensions(self) -> list[str]:
-        return [".xlsx"]
+        return [".xlsx", ".xlsm"]
 
     # ------------------------------------------------------------------
     # 对外入口
@@ -105,15 +109,19 @@ class XlsxAdapter(FileAdapter):
         """
         input_path = Path(input_path)
         output_dir = Path(output_dir)
+        suffix = input_path.suffix.lower()
+        keep_vba = suffix == ".xlsm"   # 宏部件原样保留（keep_vba 对 xlsx 无意义）
 
         self._precheck_zip(input_path)                     # ① zip 预检
-        wb = load_workbook(str(input_path), rich_text=True)  # ② 富文本保格式
+        wb = load_workbook(str(input_path), rich_text=True,
+                           keep_vba=keep_vba)               # ② 富文本保格式
 
         file_path = str(input_path)
         self._process_workbook(wb, file_path)              # ③ 逐部件脱敏
 
         output_dir.mkdir(parents=True, exist_ok=True)      # ④ 保存
-        name = output_name or f"{input_path.stem}_masked.xlsx"
+        # 输出保持原后缀：xlsm 必须仍存 xlsm（keep_vba 宏随 zip 复制保留）
+        name = output_name or f"{input_path.stem}_masked{suffix}"
         output_path = output_dir / name
         wb.save(str(output_path))
         return output_path
@@ -728,6 +736,11 @@ class XlsxAdapter(FileAdapter):
         for prefix, label, advice in _AT_RISK_PARTS:
             if any(name.startswith(prefix) for name in names):
                 logger.warning("输入文件含%s（%s...）：%s", label, prefix, advice)
+        if any(name == _VBA_PART[0] for name in names):
+            logger.warning(
+                "输入文件含 VBA 宏（xl/vbaProject.bin）：宏将原样保留，"
+                "但宏代码内容不参与脱敏，请人工确认宏内无敏感信息",
+            )
         for prefix, label in _BEST_EFFORT_PARTS:
             if any(name.startswith(prefix) for name in names):
                 logger.info("输入文件含%s（%s...）：将尝试保留，未纳入往返保证",

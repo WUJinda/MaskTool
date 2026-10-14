@@ -211,7 +211,7 @@ class Pipeline:
 
     def _scan_file_tokens(self, path: Path) -> Set[str]:
         scan = ReplacementEngine.scan_tokens
-        if path.suffix.lower() in {".docx", ".xlsx", ".pptx"}:
+        if path.suffix.lower() in {".docx", ".xlsx", ".xlsm", ".pptx"}:
             try:
                 with zipfile.ZipFile(path) as zf:
                     found: Set[str] = set()
@@ -283,7 +283,7 @@ class Pipeline:
         try:
             if suffix == ".docx":
                 result = self._process_docx(input_path, batch_dir, output_name)
-            elif suffix == ".xlsx":
+            elif suffix in (".xlsx", ".xlsm"):
                 result = self._process_xlsx(input_path, batch_dir, output_name)
             else:
                 return None

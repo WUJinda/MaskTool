@@ -1,7 +1,8 @@
-"""脱敏支持格式常量（PPT/PDF 屏蔽入口，不删码）"""
+"""脱敏支持格式常量（PPT 屏蔽入口，不删码）"""
 
-# 允许脱敏的扩展名
-SUPPORTED_MASK_EXTS: frozenset = frozenset({".docx", ".xlsx"})
+# 允许脱敏的扩展名（xlsm：openpyxl keep_vba 路径，宏部件原样保留，
+# 宏源码内容不参与脱敏——见 XlsxAdapter zip 预检告警）
+SUPPORTED_MASK_EXTS: frozenset = frozenset({".docx", ".xlsx", ".xlsm"})
 
 # 屏蔽格式及原因：代码保留，但暂不开放脱敏
 BLOCKED_EXTS: dict = {

@@ -111,7 +111,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     with up_cols[0]:
         st.markdown(
             '<div class="up-title">📄 <b>单文件上传</b>'
-            '<span>支持多选 .docx / .xlsx</span></div>',
+            '<span>支持多选 .docx / .xlsx / .xlsm</span></div>',
             unsafe_allow_html=True,
         )
         uploaded_files = st.file_uploader(
@@ -144,7 +144,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     if not uploaded_files and dir_zip is None:
         st.markdown(
             '<div class="notice"><span class="ic">📤</span>'
-            '<div class="tx">请上传需要脱敏的文件（支持 <b>.docx / .xlsx</b>，'
+            '<div class="tx">请上传需要脱敏的文件（支持 <b>.docx / .xlsx / .xlsm</b>，'
             '或上传整个目录的 <b>.zip</b> 压缩包）'
             '<small>PPT 与 PDF 已暂时停用：检测到 .pptx / .pdf 文件将拒绝处理</small>'
             '</div></div>',
@@ -159,7 +159,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     ]
     if blocked_msgs:
         st.error(
-            "以下文件暂不支持脱敏，请移除后重试（当前仅支持 Word .docx / Excel .xlsx）：\n\n"
+            "以下文件暂不支持脱敏，请移除后重试"
+            "（当前仅支持 Word .docx 与 Excel .xlsx / .xlsm）：\n\n"
             + "\n\n".join(blocked_msgs)
         )
         return

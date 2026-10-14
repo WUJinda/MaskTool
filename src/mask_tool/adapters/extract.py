@@ -35,7 +35,7 @@ def extract_texts(file_path) -> str:
     if suffix == ".docx":
         from mask_tool.adapters.docx_adapter import DocxAdapter
         return "\n".join(DocxAdapter.extract_paragraph_texts(file_path))
-    if suffix == ".xlsx":
+    if suffix in (".xlsx", ".xlsm"):
         return "\n".join(extract_xlsx_texts(file_path))
     if suffix in (".pptx", ".pdf"):
         raise ValueError(
@@ -59,7 +59,7 @@ def detect_file_results(file_path, detector, policy) -> List[DetectionResult]:
         file_path_str = str(file_path)
         for para in DocxAdapter.extract_paragraph_texts(file_path):
             results.extend(detector.detect(para, file_path_str))
-    elif suffix == ".xlsx":
+    elif suffix in (".xlsx", ".xlsm"):
         results.extend(_detect_xlsx_results(file_path, detector))
     return policy.apply(results)
 

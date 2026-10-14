@@ -15,7 +15,7 @@ from mask_tool.models.detection import (
 try:
     from mask_tool.core.formats import SUPPORTED_MASK_EXTS, BLOCKED_EXTS
 except ImportError:  # pragma: no cover - I1a 未就位时的过渡分支
-    SUPPORTED_MASK_EXTS = {".docx", ".xlsx"}
+    SUPPORTED_MASK_EXTS = {".docx", ".xlsx", ".xlsm"}
     BLOCKED_EXTS = {".pptx", ".pdf"}
 
 SUPPORTED_EXTENSIONS = SUPPORTED_MASK_EXTS
