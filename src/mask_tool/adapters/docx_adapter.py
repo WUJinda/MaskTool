@@ -26,6 +26,7 @@ from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 
 from mask_tool.adapters.base import FileAdapter
+from mask_tool.adapters.restore import bracket_gate
 from mask_tool.core.engine import ReplacementEngine
 from mask_tool.models.detection import Location
 
@@ -159,13 +160,15 @@ class DocxAdapter(FileAdapter):
 
         doc = Document(str(input_path))
         hits: Set[str] = set()
+        # alias 伪装词批次禁用 '[' 短路：伪装词不含 '['，短路会静默漏还原
+        gate = bracket_gate(token_map)
         for _label, root, flush in cls._iter_xml_roots(doc):
             for p_elem in root.iter(qn("w:p")):
                 nodes = cls._paragraph_text_nodes(p_elem)
                 if not nodes:
                     continue
                 full_text = "".join(t.text or "" for t in nodes)
-                if "[" not in full_text:
+                if gate and "[" not in full_text:
                     continue
                 new_text, hit = ReplacementEngine.unmask_text(full_text, originals)
                 if not hit:

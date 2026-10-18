@@ -67,7 +67,7 @@ class PptxAdapter(FileAdapter):
                     replacement = "***"
                 else:
                     from mask_tool.models.mapping import TokenMapping
-                    replacement = self.masker.token_gen.generate(result.text, result.text_type)
+                    replacement = self.masker.token_gen.generate(result.text, result.text_type, result.source)
                     self.masker.mappings.append(TokenMapping(
                         token=replacement,
                         original=result.text,

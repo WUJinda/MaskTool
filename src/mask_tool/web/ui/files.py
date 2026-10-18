@@ -14,6 +14,42 @@ from .labels import BLOCKED_EXTS, SUPPORTED_MASK_EXTS
 ZIP_MAX_ENTRIES = 500
 ZIP_MAX_TOTAL_BYTES = 500 * 1024 * 1024  # 500MB
 
+# 未声明 UTF-8 的成员名依次尝试的回退解码顺序（首个成功者生效）。
+# GB18030 为 GBK 超集，覆盖简体中文全部字符；顺序不可换（UTF-8 严格
+# 校验通过时优先级更高，GBK 串通过严格 UTF-8 校验的概率可忽略）。
+_ZIP_NAME_FALLBACK_ENCODINGS = ("utf-8", "gb18030")
+
+
+def _decode_zip_member_name(info: zipfile.ZipInfo) -> str:
+    """还原 zip 成员文件名的真实编码（GBK 名被 zipfile 按 CP437 误解码）。
+
+    ZIP 规范允许成员名不带编码声明：中文 Windows 常见压缩工具
+    （资源管理器、WinRAR 等）以本地 ANSI 代码页（GBK/CP936）写入
+    文件名，且不设 UTF-8 标志（通用标志位 bit 0x800）；Python
+    zipfile 对未设标志的名字一律按 CP437 解码，中文文件名自此变成
+    "─Ω╢╚"式乱码，并随解压路径扩散到检测清单、确认弹窗与产物。
+
+    恢复策略（仅对未声明 UTF-8 的名字生效）：
+    - 名字按 CP437 回转成原始字节（zipfile 以 CP437 严格解码，
+      回转必然无损；若失败则解码信息已损，保留原名）
+    - 纯 ASCII 字节无编码歧义，直接原名返回
+    - 按 _ZIP_NAME_FALLBACK_ENCODINGS 顺序尝试解码，失败回退原名
+    """
+    if info.flag_bits & 0x800:  # 已声明 UTF-8：zipfile 已正确解码
+        return info.filename
+    try:
+        raw = info.filename.encode("cp437")
+    except UnicodeEncodeError:  # 非严格 CP437 字符集：无法回转
+        return info.filename
+    if all(b < 0x80 for b in raw):
+        return info.filename
+    for enc in _ZIP_NAME_FALLBACK_ENCODINGS:
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return info.filename
+
 
 def _safe_unzip(zip_bytes: bytes, dest: Path) -> Path:
     """安全解压目录 zip 到 dest/tree，返回解压根目录。
@@ -39,13 +75,14 @@ def _safe_unzip(zip_bytes: bytes, dest: Path) -> Path:
         root.mkdir(parents=True, exist_ok=True)
         base = root.resolve()
         for info in infos:
+            name = _decode_zip_member_name(info)
             # 归一化后必须仍在解压根内（拒绝 ../ 与绝对路径穿越）
-            member = Path(os.path.normpath(str(root / info.filename)))
+            member = Path(os.path.normpath(str(root / name)))
             try:
                 member.relative_to(base)
             except ValueError:
                 raise ValueError(
-                    f"压缩包成员路径越界（疑似路径穿越），已拒绝解压: {info.filename!r}"
+                    f"压缩包成员路径越界（疑似路径穿越），已拒绝解压: {name!r}"
                 )
             if info.is_dir():
                 member.mkdir(parents=True, exist_ok=True)

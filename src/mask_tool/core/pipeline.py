@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import uuid
 import zipfile
 from datetime import datetime
@@ -19,6 +20,9 @@ from mask_tool.core.tokenizer import TokenGenerator
 from mask_tool.store.lexicon import LexiconStore
 
 logger = logging.getLogger("mask_tool")
+
+# XML 标签剔除（_scan_file_text 避让扫描用：剥标签后跨 run 拆分的词可命中）
+_XML_TAG_RE = re.compile(r"<[^>]*>")
 
 
 def _new_batch_id() -> str:
@@ -97,7 +101,17 @@ class Pipeline:
         if config.llm.enabled and config.mode != "focused":
             self.detector = self._wrap_with_llm(self.detector, config)
         self.policy = PolicyEngine(config)
-        self.token_gen = TokenGenerator()
+        # 替换串风格（D 决策）：token 占位符（默认，行为不变）/ alias 伪装词。
+        # 两者同接口（generate/get_all_mappings/reset/set_reserved），引擎与
+        # PathMasker 不感知具体风格。
+        if config.mask_style == "alias":
+            from mask_tool.core.alias_generator import AliasGenerator, AliasLexicon
+
+            self.token_gen = AliasGenerator(
+                AliasLexicon.load(config.alias_lexicon_path, config.config_dir))
+            logger.info("伪装词模式已启用（alias）：实体类替换为汤姆/A集团式伪装词")
+        else:
+            self.token_gen = TokenGenerator()
         self.masker = Masker(
             self.token_gen,
             irreversible=False,
@@ -125,6 +139,7 @@ class Pipeline:
             from mask_tool.core.llm.detector_wrapper import (
                 LLMEnhancedDetector, VALID_ROLES,
             )
+            from mask_tool.core.llm.endpoint import is_loopback_or_private
 
             # P2：role 归一化（非法值警告并按 adjudicator 处理）
             role = (llm_cfg.role or "adjudicator").strip().lower()
@@ -147,6 +162,15 @@ class Pipeline:
                 role, llm_cfg.model, client.base_url,
                 llm_cfg.budget_max_calls, llm_cfg.batch_size,
             )
+            # 外部端点提示（仅日志审计，不阻断）：端点位于外部网络且未标记信任时记录告警；
+            # Web UI 已无隐私确认门禁，此处兼作 CLI 场景提示。
+            if not getattr(llm_cfg, "trusted_endpoint", False) \
+                    and not is_loopback_or_private(llm_cfg.base_url):
+                logger.warning(
+                    "AI 增强端点 %s 位于外部网络且未标记为信任：候选实体前后文"
+                    "（未脱敏原文）将发送到该端点，请确认合规后再使用",
+                    client.base_url,
+                )
             return LLMEnhancedDetector(
                 detector, LLMAdjudicator(client, llm_cfg, stats=stats),
                 role=role,
@@ -195,6 +219,10 @@ class Pipeline:
         """M3 防线一：处理前预扫描输入文件中已出现的 token 样式串，
         登记 reserved 使后续编号让位（防撞号导致 unmask 误还原）。
 
+        alias 伪装词模式下额外把全文登记进 AliasGenerator（撞词避让：
+        伪装词若与原文已有词汇重合，unmask 会误还原——预扫描是第一道
+        防线，unmask 对账是第二道）。
+
         OOXML（docx/xlsx/pptx）按 zip 内 XML 明文扫描（token 仅含
         ASCII 安全字符，无 XML 转义）；其余格式按纯文本尽力读取。
         扫描失败（损坏/不可读）的文件静默跳过——预扫描是尽力而为的防线。
@@ -202,9 +230,14 @@ class Pipeline:
         Returns:
             汇总登记的 reserved token 集合
         """
+        from mask_tool.core.alias_generator import AliasGenerator
+
         reserved: Set[str] = set()
+        is_alias = isinstance(self.token_gen, AliasGenerator)
         for f in files:
             reserved |= self._scan_file_tokens(Path(f))
+            if is_alias:
+                self.token_gen.register_source_text(self._scan_file_text(Path(f)))
         if reserved:
             self.token_gen.set_reserved(reserved)
         return reserved
@@ -246,6 +279,50 @@ class Pipeline:
             return scan(path.read_text(encoding="utf-8", errors="ignore"))
         except Exception:
             return set()
+
+    def _scan_file_text(self, path: Path) -> str:
+        """alias 模式撞词避让：提取文件全文明文（与 _scan_file_tokens 同
+        口径；XML 剥除标签后返回——既压缩驻留体积，也把跨 run 拆分的词
+        拼接回来，如 ``<w:t>张</w:t><w:t>三</w:t>`` 剥标签后可命中"张三"，
+        否则漏避让会在 unmask 时误还原）。段落/单元格边界也随之拼接，
+        只会产生少量误避让（保守方向，宁多勿漏）。扫描失败返回空串
+        （尽力而为，不阻断）。"""
+        if path.suffix.lower() == ".pdf":
+            try:
+                import fitz
+
+                from mask_tool.adapters.pdf_adapter import iter_pdf_text_blocks
+
+                doc = fitz.open(str(path))
+                try:
+                    chunks = []
+                    for page in doc:
+                        for full, _chars in iter_pdf_text_blocks(page):
+                            chunks.append(full)
+                    return "".join(chunks)
+                finally:
+                    doc.close()
+            except Exception:
+                return ""
+        if path.suffix.lower() in {".docx", ".xlsx", ".xlsm", ".pptx"}:
+            try:
+                import html as _html
+
+                with zipfile.ZipFile(path) as zf:
+                    parts = []
+                    for name in zf.namelist():
+                        if name.endswith((".xml", ".rels")):
+                            data = zf.read(name).decode("utf-8", errors="ignore")
+                            # 剥标签 + 反转义：含 &amp; 等实体的自定义池词也能命中
+                            parts.append(
+                                _html.unescape(_XML_TAG_RE.sub("", data)))
+                    return "\n".join(parts)
+            except Exception:
+                pass
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return ""
 
     def process_file(
         self,
@@ -403,6 +480,7 @@ class Pipeline:
                 "input_files": list(self.report.input_files),
                 "total_mappings": len(self.masker.get_mappings()),
                 "mode": self.config.mode,
+                "style": self.config.mask_style if self.config.mask_style in ("token", "alias") else "token",
             },
         }
         for m in self.masker.get_mappings():

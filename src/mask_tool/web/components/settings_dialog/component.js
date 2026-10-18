@@ -424,7 +424,7 @@ html[data-app-theme="dark"] #mt-settings-root .mt-eye { color: #8a93a5; }
                 <span id="mt-llm-status" style="font-size:.74rem;color:#8a93a5"></span>
               </div>
             </div>
-            <div class="mt-csv-note">💡 隐私：仅发送待复核片段（前后各 50 字上下文）至上述端点，建议内网或本机部署。</div>
+            <div class="mt-csv-note">💡 隐私：仅发送待复核片段（前后各 50 字上下文）至上述端点，不会整篇外发。</div>
           </section>
         </div>
       </div>

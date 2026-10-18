@@ -293,7 +293,7 @@ class XlsxAdapter(FileAdapter):
             if self.masker.irreversible:
                 out = out.replace(r.text, "***")
             else:
-                token = self.masker.token_gen.generate(r.text, r.text_type)
+                token = self.masker.token_gen.generate(r.text, r.text_type, r.source)
                 self.masker.mappings.append(self._new_mapping(token, r, kind))
                 out = out.replace(r.text, token)
             n += 1

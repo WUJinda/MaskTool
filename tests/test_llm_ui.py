@@ -219,9 +219,11 @@ class TestSidebarAI:
     def _reset_component_cache(self):
         """隔离 AppTest 会话副作用：settings_dialog 的组件构造器是模块级
         缓存，跨 AppTest 会话不重置会令后续会话报
-        "Component not registered"（见 test_web_smoke）。"""
-        yield
+        "Component not registered"（见 test_web_smoke）。前置+后置双重重置：
+        前置防本会话被上一个 AppTest 污染，后置防污染后续测试。"""
         import mask_tool.web.ui.settings_dialog as sd
+        sd._settings_component_ctor = None
+        yield
         sd._settings_component_ctor = None
 
     def test_sidebar_has_llm_toggle_disabled_without_endpoint(self):
@@ -335,3 +337,58 @@ def test_last_test_field_tolerated_by_llmconfig(settings_file):
     })
     cfg = LLMConfig(**get_llm_settings())
     assert cfg.base_url == "http://x" and cfg.last_test["ok"] is False
+
+# ---------------------------------------------------------------------------
+# T1.2 确认页默认勾选：AI 建议档默认不勾选（AI 只建议、不自动替换）
+# ---------------------------------------------------------------------------
+
+def _mk_status_result(source, status):
+    from mask_tool.models.detection import (
+        DetectionResult, DetectionType, Location,
+    )
+    r = DetectionResult(
+        text="X公司", text_type=DetectionType.COMPANY, source=source,
+        confidence=0.7, location=Location(file="a.docx"), context="...",
+    )
+    r.status = status
+    return r
+
+
+def test_default_selection_ai_suggest_not_checked():
+    """AI 增量检出（source=llm）落建议档时默认不勾选，须人工确认。"""
+    from mask_tool.models.detection import DetectionStatus
+    from mask_tool.web.ui.pages.masking import _default_selection
+
+    AUTO = DetectionStatus.AUTO_MASK
+    SUG = DetectionStatus.SUGGEST_MASK
+    HINT = DetectionStatus.HINT_ONLY
+
+    # 规则来源：自动/建议档默认勾选，仅提示不勾选
+    assert _default_selection(_mk_status_result("dictionary", AUTO)) is True
+    assert _default_selection(_mk_status_result("ner", SUG)) is True
+    assert _default_selection(_mk_status_result("regex", HINT)) is False
+    # AI 增量检出：建议档默认不勾选（核心修复点）
+    assert _default_selection(_mk_status_result("llm", SUG)) is False
+    # aggressive 模式下 AI 检出升为自动档，仍默认勾选（保留高召回语义）
+    assert _default_selection(_mk_status_result("llm", AUTO)) is True
+    assert _default_selection(_mk_status_result("llm", HINT)) is False
+
+# ---------------------------------------------------------------------------
+# 端点内网判定与安全默认（后端保留；Web UI 隐私确认门禁已移除）
+# ---------------------------------------------------------------------------
+
+def test_endpoint_loopback_or_private():
+    from mask_tool.core.llm.endpoint import is_loopback_or_private
+    for u in ["http://localhost:11434/v1", "http://127.0.0.1:8000/v1",
+              "http://[::1]:8000/v1", "http://192.168.1.10:8000/v1",
+              "http://10.0.0.5/v1", "http://172.16.3.4/v1",
+              "http://gpu.local/v1", "192.168.1.10:8000/v1"]:
+        assert is_loopback_or_private(u), u            # 本机/内网
+    for u in ["https://open.bigmodel.cn/api/paas/v4", "https://api.openai.com/v1",
+              "http://8.8.8.8/v1", "http://example.com/v1", "", "   "]:
+        assert not is_loopback_or_private(u), u        # 外部/空
+
+
+def test_trusted_endpoint_default_is_secure():
+    from mask_tool.models.config import LLMConfig
+    assert LLMConfig().trusted_endpoint is False       # 安全默认

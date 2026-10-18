@@ -64,7 +64,10 @@ class LLMEnhancedDetector(Detector):
         # P2：增量检测（detector / both）——规则已检出的实体作为排除集
         if self._role in ("detector", "both") and results is not None:
             try:
-                exclude = {r.text for r in results}
+                # 排除集 = 规则已检出 ∪ 白名单：白名单词已被判定为非敏感，
+                # 不应由 AI 重新检出（修复白名单对增量检测不生效的缺口，
+                # 否则 config/whitelist.yaml 无法约束 AI 检出面）
+                exclude = {r.text for r in results} | set(self.whitelist)
                 new = self._adjudicator.detect_new(
                     text, file_path, exclude_texts=exclude,
                 )

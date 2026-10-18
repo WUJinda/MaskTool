@@ -181,3 +181,97 @@ def test_detect_new_chinese_type_aliases():
     assert types["王总"] == DetectionType.PERSON
     assert types["远景产业园"] == DetectionType.PROJECT
     assert "神秘词" not in types
+
+# ---------------------------------------------------------------------------
+# T2.3 采纳率统计
+# ---------------------------------------------------------------------------
+
+def test_summarize_ai_acceptance():
+    from mask_tool.core.llm.adjudicator import summarize_ai_acceptance
+    from mask_tool.models.detection import (
+        DetectionResult, DetectionType, Location,
+    )
+
+    def mk(text, source="dictionary", reason=""):
+        return DetectionResult(
+            text=text, text_type=DetectionType.PERSON, source=source,
+            confidence=0.7, location=Location(file="a"), context="",
+            llm_reason=reason,
+        )
+
+    results = [
+        mk("王总", source="llm"),                                   # 0 AI 检出
+        mk("张工", source="llm"),                                   # 1 AI 检出
+        mk("甲方", reason="AI 复核建议剔除（原置信度 0.80）：通用词"),  # 2 AI 剔除
+        mk("某某公司"),                                             # 3 普通
+    ]
+    out = summarize_ai_acceptance(results, [0, 2])
+    assert out == {"ai_detected": 2, "ai_detected_accepted": 1,
+                   "ai_dropped": 1, "ai_dropped_overridden": 1}
+    assert summarize_ai_acceptance([], []) == {
+        "ai_detected": 0, "ai_detected_accepted": 0,
+        "ai_dropped": 0, "ai_dropped_overridden": 0,
+    }
+
+# ---------------------------------------------------------------------------
+# 前缀常量与真实 _apply 产物的闭环（防 llm_reason 前缀漂移静默失效）
+# ---------------------------------------------------------------------------
+
+def test_apply_drop_prefix_roundtrip():
+    """真实 _apply 的 drop 产物必须被 summarize/is_ai_detected 正确识别。"""
+    from mask_tool.core.llm.adjudicator import (
+        LLMAdjudicator, _Verdict, DROP_REASON_PREFIX, is_ai_detected,
+        summarize_ai_acceptance,
+    )
+    from mask_tool.models.detection import (
+        DetectionResult, DetectionType, Location,
+    )
+
+    r = DetectionResult(text="某某公司", text_type=DetectionType.COMPANY,
+                        source="dictionary", confidence=0.95,
+                        location=Location(file="a"))
+
+    class _Stats:
+        dropped = 0
+        adjusted = 0
+
+    adj = object.__new__(LLMAdjudicator)
+    adj._stats = _Stats()
+    LLMAdjudicator._apply(adj, r, _Verdict(action="drop", reason="通用词"))
+
+    assert r.llm_reason.startswith(DROP_REASON_PREFIX)
+    assert not is_ai_detected(r)
+    assert summarize_ai_acceptance([r], []) == {
+        "ai_detected": 0, "ai_detected_accepted": 0,
+        "ai_dropped": 1, "ai_dropped_overridden": 0,
+    }
+    assert summarize_ai_acceptance([r], [0]) == {
+        "ai_detected": 0, "ai_detected_accepted": 0,
+        "ai_dropped": 1, "ai_dropped_overridden": 1,
+    }
+
+
+def test_is_ai_detected_path_rewritten():
+    """文件名/路径检测把 source 改写为 path 后，AI 检出仍应被识别。"""
+    from mask_tool.core.llm.adjudicator import (
+        DETECT_REASON_PREFIX, is_ai_detected,
+    )
+    from mask_tool.models.detection import (
+        DetectionResult, DetectionType, Location,
+    )
+
+    # 真实场景：PathMasker 保留 origin_source（WIP 字段）
+    r = DetectionResult(
+        text="李四", text_type=DetectionType.PERSON, source="path",
+        origin_source="llm", confidence=0.7,
+        location=Location(file="李四-合同.docx"),
+        llm_reason=f"{DETECT_REASON_PREFIX}：非正式指代",
+    )
+    assert is_ai_detected(r)
+    # 不依赖 origin_source：仅 llm_reason 前缀也足以识别
+    r2 = DetectionResult(
+        text="李四", text_type=DetectionType.PERSON, source="path",
+        confidence=0.7, location=Location(file="x.docx"),
+        llm_reason=DETECT_REASON_PREFIX,
+    )
+    assert is_ai_detected(r2)

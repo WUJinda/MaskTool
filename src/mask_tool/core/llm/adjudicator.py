@@ -31,6 +31,12 @@ logger = logging.getLogger("mask_tool")
 # 全部模式下 PolicyEngine 均降级为 HINT_ONLY
 _DROP_CONFIDENCE = 0.40
 
+# llm_reason 的可判读前缀（多处 UI/统计据此识别 AI 复核剔除与 AI 增量检出）。
+# 必须是常量：_apply / summarize_ai_acceptance / 检测项判据共用同一字面量，
+# 避免前缀漂移导致统计静默失效。
+DROP_REASON_PREFIX = "AI 复核建议剔除"
+DETECT_REASON_PREFIX = "AI 检出"
+
 # LLM 上调置信度的安全上限（防幻觉顶成自动脱敏）
 _RAISE_CAP = 0.05
 
@@ -127,6 +133,11 @@ _DETECT_MAX_CHUNK_CHARS = 1500
 
 # P0 定制（2026-09 调研结论：通用骨架 + 判据清单 + few-shot 判例）。
 # few-shot 实体全部虚构，防模型抄示例（chunk.find 幻觉兜底仍在）。
+# 注：下方错误规则中列举的行业通用词（甲方/乙方/监理…）是“模式示例”，
+# 用于教会模型识别同类词；具体词的**权威过滤器**是 config/whitelist.yaml
+# ——已入白名单的词在检测阶段即被过滤，不会到达本提示词在线路上。
+# 两者职责不同（示例=教学，白名单=过滤），无需删除示例，但新增确定性
+# 通用词应优先进白名单而非提示词。
 _SYSTEM_PROMPT = (
     "你是中文商务/工程文档脱敏系统的敏感信息复核引擎。系统已用词典/"
     "正则/NER 规则检出候选实体，你需要结合上下文判断每一项是否真的"
@@ -156,6 +167,9 @@ _SYSTEM_PROMPT = (
 # P2：增量检测提示词
 # P0 定制：类别定义表 + 中文 few-shot（2 正 1 负）——小模型质量主杠杆
 # （Presidio/LangExtract 实践）；示例实体全虚构，防抄示例有 find 兜底。
+# 注：负例中的行业通用词（甲方/乙方/监理/标段/图纸…）是“模式示例”；
+# 权威过滤器是 config/whitelist.yaml（已入白名单的词在检测阶段即被过滤，
+# 且 detect_new 的排除集已并入白名单），此处仅作教学用，请勿在此新增词条。
 _DETECT_SYSTEM_PROMPT = (
     "你是中文商务/工程文档脱敏系统的敏感信息检测引擎。从给定文本中找出"
     "所有需要脱敏的敏感实体。\n\n"
@@ -221,6 +235,8 @@ class LLMRunStats:
     adjusted: int = 0           # 应用 adjust 的次数
     dropped: int = 0            # 应用 drop 的次数
     detected: int = 0           # P2：AI 增量检出实体数（source="llm"）
+    detected_accepted: int = 0  # T2.3：AI 增量检出被确认采用数（确认页勾选）
+    dropped_overridden: int = 0  # T2.3：AI 建议剔除但被用户改回数（推翻 AI 建议）
     errors: int = 0             # 调用/解析失败批次数
     first_error: str = ""       # 首条完整错误消息（横幅展示用，空=无错误）
     elapsed_seconds: float = 0.0
@@ -236,10 +252,48 @@ class LLMRunStats:
             "adjusted": self.adjusted,
             "dropped": self.dropped,
             "detected": self.detected,
+            "detected_accepted": self.detected_accepted,
+            "dropped_overridden": self.dropped_overridden,
             "errors": self.errors,
             "first_error": self.first_error,
             "elapsed_seconds": round(self.elapsed_seconds, 3),
         }
+
+
+def is_ai_detected(r) -> bool:
+    """该检测项是否来自 AI 增量检出（source="llm"）。
+
+    文件名/路径检测会把 source 改写为 "path"（真实来源存 origin_source），
+    但 llm_reason 仍保留 DETECT_REASON_PREFIX 前缀——两条判据取并集，
+    保证 source 被改写后 AI 检出项仍能被默认不勾选/加词/统计正确识别。
+    """
+    eff = str(getattr(r, "origin_source", "") or "") or str(getattr(r, "source", "") or "")
+    return eff == "llm" or str(getattr(r, "llm_reason", "") or "").startswith(
+        DETECT_REASON_PREFIX
+    )
+
+
+def summarize_ai_acceptance(results, selected_indices) -> Dict[str, int]:
+    """统计确认页对 AI 建议的采纳情况（纯函数，供 report / 结果页展示）。
+
+    - ai_detected / ai_detected_accepted：AI 增量检出总数 / 被采用数
+    - ai_dropped / ai_dropped_overridden：AI 建议剔除总数 / 被用户改回数
+    依据：is_ai_detected 为 AI 增量检出；llm_reason 以 DROP_REASON_PREFIX
+    开头为 AI 复核剔除项（drop 降级为 HINT_ONLY，用户可改回勾选）。
+    """
+    sel = set(selected_indices or ())
+    out = {"ai_detected": 0, "ai_detected_accepted": 0,
+           "ai_dropped": 0, "ai_dropped_overridden": 0}
+    for i, r in enumerate(results or []):
+        if is_ai_detected(r):
+            out["ai_detected"] += 1
+            if i in sel:
+                out["ai_detected_accepted"] += 1
+        elif str(getattr(r, "llm_reason", "") or "").startswith(DROP_REASON_PREFIX):
+            out["ai_dropped"] += 1
+            if i in sel:
+                out["ai_dropped_overridden"] += 1
+    return out
 
 
 @dataclass
@@ -375,6 +429,8 @@ class LLMAdjudicator:
         输出 source="llm" 的 DetectionResult，置信度封顶 0.80：
         smart 模式下进建议档（默认流程不自动替换，人工确认勾选后生效），
         aggressive 下自动脱敏（高召回语义）。
+        与确认页的衔接：建议档的 AI 项在确认页默认不勾选（见
+        web/ui/pages/masking.py 的 _default_selection），与“人工确认勾选后生效”一致。
 
         防护：回包 text 必须在原文逐字出现（幻觉防护，masker 精确替换
         的前提）；排除集（规则已检出的实体）过滤；单块失败降级为空列表。
@@ -486,7 +542,7 @@ class LLMAdjudicator:
                 confidence=conf,
                 location=Location(file=file_path),
                 context=chunk[max(0, idx - 50):idx + len(t) + 50],
-                llm_reason=f"AI 检出：{reason}" if reason else "AI 检出",
+                llm_reason=f"{DETECT_REASON_PREFIX}：{reason}" if reason else DETECT_REASON_PREFIX,
             ))
             seen.add(t)
         return results
@@ -604,7 +660,7 @@ class LLMAdjudicator:
         """把有效判定应用到单条结果（只改 confidence/type/llm_reason）。"""
         if verdict.action == "drop":
             r.llm_reason = (
-                f"AI 复核建议剔除（原置信度 {r.confidence:.2f}）：{verdict.reason}"
+                f"{DROP_REASON_PREFIX}（原置信度 {r.confidence:.2f}）：{verdict.reason}"
             )
             r.confidence = _DROP_CONFIDENCE
             self._stats.dropped += 1

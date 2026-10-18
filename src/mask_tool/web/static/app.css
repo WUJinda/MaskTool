@@ -770,38 +770,36 @@ html[data-app-theme="dark"] [data-testid="stTextArea"]:has(textarea[aria-label="
 html[data-app-theme="dark"] [data-testid="stTextArea"]:has(textarea[aria-label="临时自定义敏感词"]) textarea:focus {
     border-color: #7d8ff0 !important;
 }
-/* 选项行卡片化（副说明 ::after 注入；勾选框为 React Aria 自绘 box，input 保持 sr-only） */
+/* 选项行卡片化（说明文字走 Streamlit help= 问号悬停提示，与侧栏一致；
+   勾选框为 React Aria 自绘 box，input 保持 sr-only；
+   卡片内仅剩粗体标题 + 勾选框，整体竖直居中） */
 [data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]),
 [data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) { margin-bottom: 10px; }
 [data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label,
 [data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label {
     border: 1.5px solid #e5e8f0; border-radius: 10px; padding: 10px 12px;
-    display: flex; align-items: flex-start; gap: 10px;
+    display: flex; align-items: center; gap: 10px;
     transition: border-color 0.15s, background 0.15s; cursor: pointer;
 }
 [data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label:hover,
 [data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label:hover { border-color: rgba(91,110,232,.45); }
-/* 文本列（stWidgetLabel 是 label 的最后一个 div）：主标题 + 副说明 */
+/* 文本列（stWidgetLabel）：粗体主标题；问号提示图标（stTooltipHoverTarget）
+   紧随其后，不拉伸填充，保持图标贴近文字 */
 [data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label > div[data-testid="stWidgetLabel"],
-[data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label > div[data-testid="stWidgetLabel"] { flex: 1; min-width: 0; }
+[data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label > div[data-testid="stWidgetLabel"] { min-width: 0; }
 [data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label > div[data-testid="stWidgetLabel"] p,
 [data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label > div[data-testid="stWidgetLabel"] p {
     font-size: 0.8rem !important; font-weight: 700; color: #2b3040 !important; line-height: 1.3; margin: 0 !important;
 }
-[data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label > div[data-testid="stWidgetLabel"]::after,
-[data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label > div[data-testid="stWidgetLabel"]::after {
-    display: block; font-size: 0.68rem; color: #8a93a5; margin-top: 2px; line-height: 1.45; font-weight: 400;
-}
-[data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label > div[data-testid="stWidgetLabel"]::after {
-    content: "对文件主名（不含扩展名）执行同样的检测与替换，Token 与正文共享";
-}
-[data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label > div[data-testid="stWidgetLabel"]::after {
-    content: "完全跳过自动检测（NER/正则/词库），只处理左侧指定的词；适合误报多时";
+/* 问号提示图标：与标题同行居中，间距微调 */
+[data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label > [data-testid="stTooltipHoverTarget"],
+[data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label > [data-testid="stTooltipHoverTarget"] {
+    margin-left: 2px; flex-shrink: 0;
 }
 /* 自绘勾选框（label 内第一个 div，含 svg polyline） */
 [data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label > div:first-of-type:not([data-testid]),
 [data-testid="stCheckbox"]:has(input[aria-label="仅脱敏我指定的词"]) label > div:first-of-type:not([data-testid]) {
-    width: 17px; height: 17px; border-radius: 5px; flex-shrink: 0; margin-top: 1px;
+    width: 17px; height: 17px; border-radius: 5px; flex-shrink: 0;
     border: 1.5px solid #c3c9e8; background: #fff; transition: all 0.15s;
 }
 [data-testid="stCheckbox"]:has(input[aria-label="同时脱敏文件名"]) label > div:first-of-type:not([data-testid]) svg,

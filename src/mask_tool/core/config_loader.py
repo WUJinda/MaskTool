@@ -148,6 +148,9 @@ def config_from_dict(data: dict, config_dir: str = "") -> MaskConfig:
     data = data or {}
     return MaskConfig(
         mode=data.get("mode", "smart"),
+        mask_style=data.get("mask_style", "token"),
+        alias_lexicon_path=data.get(
+            "alias_lexicon_path", "config/alias_lexicon.yaml"),
         thresholds=Thresholds(**data.get("thresholds", {})),
         ocr=OCRConfig(**data.get("ocr", {})),
         ner=NERConfig(**data.get("ner", {})),
@@ -311,8 +314,13 @@ def _merge_app_llm(cfg) -> list:
         saved = get_llm_settings()
         if saved:
             valid = {f.name for f in _dc_fields(cfg.llm)}
+            _bool_fields = {"enabled", "trusted_endpoint"}
             for k, v in saved.items():
                 if k in valid:
+                    # YAML 手写引号布尔（如 trusted_endpoint: "false"）为字符串，
+                    # 直接 setattr 会被 bool("false") 误判为 True → 门禁失效。
+                    if k in _bool_fields and isinstance(v, str):
+                        v = v.strip().lower() in ("1", "true", "yes", "on")
                     setattr(cfg.llm, k, v)
         return []
     except Exception as exc:  # 设置文件损坏等：保持 YAML 配置，不阻断

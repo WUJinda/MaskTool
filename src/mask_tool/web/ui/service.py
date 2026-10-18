@@ -63,13 +63,18 @@ def _snapshot_llm_summary() -> None:
         s.first_error or "(无)",
     )
     ok = s.calls > 0 and not (s.errors and s.calls == 0)
-    st.session_state["_llm_run_summary"] = {
+    _summary = {
         **s.to_dict(),
         "role": getattr(pipeline.detector, "role", "adjudicator"),
         "ok": s.calls > 0,
         "tripped": getattr(pipeline.detector, "_adjudicator", None) is not None
                    and getattr(pipeline.detector._adjudicator, "_tripped", False),
     }
+    # T2.3：并入确认页采纳统计（脱敏阶段写入；无则不并）
+    _acc = st.session_state.get("_llm_acceptance")
+    if _acc:
+        _summary.update(_acc)
+    st.session_state["_llm_run_summary"] = _summary
     # 侧栏徽标：有成功调用=绿；有错误=红+首错；全缓存命中也算绿
     if s.calls > 0:
         st.session_state["llm_health"] = {"ok": True, "msg": f"模型 {s.model}"}
@@ -255,6 +260,7 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
     # 误读新结果集——learn_set 旧索引会把不相关的词写进词库文件）
     st.session_state.pop("user_selections", None)
     st.session_state.pop("learn_set", None)
+    st.session_state.pop("_llm_acceptance", None)
     # 节点日志：用户动作入口（文件清单/模式/开关状态），排查"点了没反应/转圈"的第一现场
     _names = [f.name for f in (uploaded_files or [])] or (
         [zip_file.name] if zip_file else []
@@ -412,6 +418,27 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
 # 脱敏执行流程
 # ──────────────────────────────────────────────
 
+def _warn_alias_degradation(pipeline) -> None:
+    """alias 风格降级提示（st.warning）：词池耗尽 / 避让预扫描超限/截断。
+
+    生成器无这些属性（token 风格）时静默通过。"""
+    gen = getattr(pipeline, "token_gen", None)
+    exhausted = getattr(gen, "exhausted_categories", None)
+    if callable(exhausted):
+        cats = exhausted()
+        if cats:
+            st.warning(
+                f"伪装词池已耗尽（{'、'.join(cats)}），部分实体回退占位符样式；"
+                "可在 config/alias_lexicon.yaml 扩充词池"
+            )
+    if getattr(gen, "_source_overflow", False):
+        st.warning(
+            "避让预扫描登记量达上限，部分文件未参与撞词避让；还原对账仍会兜底校验"
+        )
+    if getattr(gen, "_blob_truncated", False):
+        st.warning("个别文件预扫描文本过大被截断，截断部分不参与撞词避让")
+
+
 def _run_masking(
     uploaded_files,
     selected_indices: List[int],
@@ -423,6 +450,7 @@ def _run_masking(
     batch_id: str,
     batch_name: str,
     mask_filenames: bool = True,
+    mask_style: str = "token",
     manual_words: Optional[List[str]] = None,
     manual_only: bool = False,
 ):
@@ -431,6 +459,8 @@ def _run_masking(
     - 输出与 mapping.json 写入持久批次目录 ~/.mask-tool/batches/<batch_id>/，
       history.json 仅存批次元数据（不再保存完整映射明文）；
     - mask_filenames=True 时对输出文件主名执行同套检测替换（Token 与内容共享）；
+    - mask_style：替换串风格 token（占位符，默认）/ alias（伪装词）；
+      不可逆脱敏开启时风格无意义（全 *** 替换）；
     - 上传临时目录用完即删（finally 清理）；
     - I6：manual_words/manual_only 必须与检测时传同一套（本函数由检测页控件
       取值注入，与 _run_detection 同源），否则会出现"检测看到了但脱敏没脱"。
@@ -438,6 +468,8 @@ def _run_masking(
     # 加载配置
     cfg = _load_config(mode)
     cfg.ner.enabled = ner_enabled and not manual_only
+    # 替换风格（侧栏选择覆盖配置文件；非法值回退 token）
+    cfg.mask_style = mask_style if mask_style in ("token", "alias") else "token"
     # P3：UI 侧栏「AI 增强检测」开关覆盖 enabled；端点未配置时自动回落
     # （端点在设置弹窗「模型配置」维护，经 config_loader 合并进 cfg.llm）
     cfg.llm.enabled = (
@@ -465,6 +497,13 @@ def _run_masking(
 
     # 获取确认的检测结果
     confirmed_results = [all_results[i] for i in selected_indices]
+    # T2.3：记录用户对 AI 建议的采纳情况（AI 建议剔除项被改回 / AI 检出被采用）
+    from mask_tool.core.llm.adjudicator import summarize_ai_acceptance
+    _llm_accept = summarize_ai_acceptance(all_results, selected_indices)
+    st.session_state["_llm_acceptance"] = _llm_accept
+    if pipeline.llm_stats is not None:
+        pipeline.llm_stats.detected_accepted = _llm_accept["ai_detected_accepted"]
+        pipeline.llm_stats.dropped_overridden = _llm_accept["ai_dropped_overridden"]
     # 设置状态为 AUTO_MASK
     for r in confirmed_results:
         r.status = DetectionStatus.AUTO_MASK
@@ -606,6 +645,9 @@ def _run_masking(
         except Exception as e:
             st.warning(f"映射表 paths 段写入失败: {e}")
 
+        # alias 降级透出（审查 Minor-3）：词池耗尽 / 避让预扫描超限不再静默
+        _warn_alias_degradation(pipeline)
+
         # 学习新词
         if learn_words and learned_words:
             _save_learned_words(learned_words, cfg)
@@ -699,27 +741,31 @@ def _run_masking(
         _snapshot_llm_summary()  # P3：脱敏流程结束固化 AI 摘要
 
 
-def _save_learned_words(learned: dict, config: MaskConfig):
-    """将学习到的词追加到词库文件。
+def merge_words_into_lexicon(
+    lexicon_path: Path, learned: Dict[str, List[str]],
+) -> "tuple[bool, int, str]":
+    """把 {category: [words]} 合并写入词库 YAML（可复用纯逻辑）。
 
-    词库路径已由 config_loader 解析为绝对路径（含 frozen 迁移）；
-    文件缺失时自动建目录初始化（不再静默丢弃学习词），写入失败仅
-    警告不打断主流程。
+    - 词库文件缺失时自动建目录初始化（不静默丢弃词条）；
+    - 逐类别追加、去重（已存在的词跳过不重复写）；
+    - 返回 (ok, new_count, message)：ok=False 时 message 为失败原因，
+      ok=True 时 message 为词库路径（供 UI 反馈展示）。
     """
-    lexicon_path = Path(config.lexicon_path)
+    lexicon_path = Path(lexicon_path)
     try:
         if not lexicon_path.exists():
             lexicon_path.parent.mkdir(parents=True, exist_ok=True)
             lexicon_path.write_text("", encoding="utf-8")
-
         with open(lexicon_path, "r", encoding="utf-8") as f:
             existing = yaml.safe_load(f) or {}
-    except OSError:
-        return  # 无法读写时不阻断确认主流程
+    except OSError as exc:
+        return False, 0, f"无法读写词库文件 {lexicon_path}：{exc}"
 
     new_count = 0
     for category, words in learned.items():
-        if category not in existing:
+        if not words:
+            continue
+        if category not in existing or not isinstance(existing[category], list):
             existing[category] = []
         for word in words:
             if word not in existing[category]:
@@ -729,8 +775,18 @@ def _save_learned_words(learned: dict, config: MaskConfig):
     if new_count > 0:
         try:
             with open(lexicon_path, "w", encoding="utf-8") as f:
-                yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+                yaml.dump(
+                    existing, f, allow_unicode=True, default_flow_style=False,
+                )
         except OSError as exc:
-            st.warning(f"学习词条保存失败（{lexicon_path}）：{exc}")
+            return False, 0, f"词库写入失败（{lexicon_path}）：{exc}"
+    return True, new_count, str(lexicon_path)
+
+
+def _save_learned_words(learned: dict, config: MaskConfig):
+    """将学习到的词追加到词库文件（委托 merge_words_into_lexicon）。"""
+    ok, _new_count, msg = merge_words_into_lexicon(Path(config.lexicon_path), learned)
+    if not ok:
+        st.warning(f"学习词条保存失败：{msg}")
 
 

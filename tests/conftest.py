@@ -20,6 +20,20 @@ def _no_open_in_file_explorer(monkeypatch):
     monkeypatch.setattr(os, "startfile", lambda path: None, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _reset_settings_component_cache():
+    """settings_dialog 的组件构造器是模块级缓存，跨 AppTest 会话不重置会报
+    "Component not registered"（test_web_smoke × test_llm_ui 顺序相关）。
+    若模块已加载，每个测试前后重置，令组件构造器随会话重建。"""
+    import sys
+    sd = sys.modules.get("mask_tool.web.ui.settings_dialog")
+    if sd is not None:
+        sd._settings_component_ctor = None
+    yield
+    if sd is not None:
+        sd._settings_component_ctor = None
+
+
 @pytest.fixture
 def sample_text():
     """示例文本，包含各类敏感信息"""

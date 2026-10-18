@@ -356,6 +356,7 @@ class PathMasker:
                 # ner 项被词典更长词条包含：词典替换已覆盖该区间，叠加 ner
                 # 只会产生多余 token 与噪音，直接滤除（R1-B2）
                 continue
+            r.origin_source = r.source   # 保留真实来源（alias 风格边界用）
             r.source = "path"
             kept.append(r)
         return kept
@@ -392,7 +393,7 @@ class PathMasker:
             if self.irreversible:
                 replacement = "***"
             else:
-                replacement = self.token_gen.generate(r.text, r.text_type)
+                replacement = self.token_gen.generate(r.text, r.text_type, r.origin_source or r.source)
             masked = masked.replace(r.text, replacement)
             replaced_any = True
         if not replaced_any:
@@ -507,7 +508,7 @@ class PathMasker:
             if r.text_type.value not in categories:
                 categories.append(r.text_type.value)
             if not self.irreversible and r.text in old_name:
-                token = self.token_gen.generate(r.text, r.text_type)  # 幂等
+                token = self.token_gen.generate(r.text, r.text_type, r.origin_source or r.source)  # 幂等
                 if token not in tokens_used:
                     tokens_used.append(token)
         return RenameItem(
@@ -644,7 +645,7 @@ class PathMasker:
             if r.text_type.value not in categories:
                 categories.append(r.text_type.value)
             if not self.irreversible and r.text in file_path.name:
-                token = self.token_gen.generate(r.text, r.text_type)
+                token = self.token_gen.generate(r.text, r.text_type, r.origin_source or r.source)
                 if token not in tokens_used:
                     tokens_used.append(token)
         status = STATUS_CONFLICT if final != new_name else STATUS_RENAMED

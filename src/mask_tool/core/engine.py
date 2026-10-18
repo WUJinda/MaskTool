@@ -171,7 +171,7 @@ class ReplacementEngine:
             elif s.result.text_type == DetectionType.AMOUNT and self.amount_mode == "fixed":
                 new_text, token = "***", None
             else:
-                token = self.token_gen.generate(key, s.result.text_type)
+                token = self.token_gen.generate(key, s.result.text_type, s.result.source)
                 new_text = token
                 if key not in self._registered:   # 仅首次登记
                     self._registered.add(key)
@@ -260,6 +260,16 @@ class ReplacementEngine:
     def scan_tokens(text: str) -> Set[str]:
         """提取文本中已出现的全部 token 样式串（mask 前预扫描用）。"""
         return set(TOKEN_PATTERN.findall(text))
+
+    @staticmethod
+    def scan_alias_residuals(text: str, alias_keys: Iterable[str]) -> Set[str]:
+        """alias 伪装词对账：返回仍出现在 text 中的映射表伪装词。
+
+        伪装词无固定样式可正则匹配，只能按映射表登记的替换串逐一
+        精确查找；还原成功后应全部消失，残留即还原缺陷（unmask 防线
+        二的 alias 侧）。alias_keys 为映射表键中不含 '[' 的子集。
+        """
+        return {a for a in alias_keys if a and a in text}
 
     # ---- unmask（M3：token -> original 整串替换） ----
 

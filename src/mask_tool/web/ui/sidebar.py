@@ -15,6 +15,26 @@ def _persist_pref(key: str):
     from mask_tool.core.app_settings import set_ui_prefs
     set_ui_prefs({key: st.session_state.get(key)})
 
+
+def _config_default_mask_style() -> str:
+    """配置文件里的 mask_style（侧栏初值回退链：持久化偏好 > 配置文件 > token）。
+
+    轻量读取（不走 load_config 全链，避免每次渲染做词库检查等副作用）；
+    文件缺失/解析失败/非法值均回退 token。"""
+    try:
+        import yaml
+
+        from mask_tool.core.config_loader import find_data_file
+
+        p = find_data_file("config/default.yaml")
+        if p:
+            data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            v = data.get("mask_style", "token")
+            return v if v in ("token", "alias") else "token"
+    except Exception:
+        pass
+    return "token"
+
 # ──────────────────────────────────────────────
 # 侧边栏
 # ──────────────────────────────────────────────
@@ -85,6 +105,26 @@ def render_sidebar():
                 args=("learn_words",),
                 help="确认时标记为'加入词库'的词将写入词库文件",
             )
+            _STYLES = ["token", "alias"]
+            # 初值：用户持久化偏好 > 配置文件 mask_style（M-2：配置项真实生效）> token
+            _init_style = _prefs.get("mask_style") or _config_default_mask_style()
+            mask_style = st.selectbox(
+                "替换风格",
+                options=_STYLES,
+                format_func=lambda x: {
+                    "token": "🏷 占位符 [COMPANY_001]",
+                    "alias": "🎭 伪装词（汤姆/A集团）",
+                }.get(x, x),
+                index=_STYLES.index(_init_style) if _init_style in _STYLES else 0,
+                key="mask_style",
+                on_change=_persist_pref,
+                args=("mask_style",),
+                help=(
+                    "alias：实体类（人名/地名/公司/机构/项目/词库与手动词）"
+                    "替换为自然伪装词，文档观感更自然；金额/手机号/证件号"
+                    "仍用占位符。两种风格均可凭 mapping.json 一键还原"
+                ),
+            )
 
         # AI 增强检测（P3）：端点在「设置 → 模型配置」维护，此处仅运行开关；
         # 端点未配置时禁用开关并引导去设置。开关为会话级（widget 状态跨
@@ -104,7 +144,7 @@ def render_sidebar():
                          "both": "复核+检测"}.get(str(_llm_cfg.get("role", "adjudicator")), "仅复核")
             llm_enabled = st.checkbox(
                 "AI 增强检测",
-                # 持久化偏好仅在端点就绪时生效（配置丢失/未配置时不残留开启）
+                # 持久化偏好仅在端点就绪时生效
                 value=bool(_prefs.get("llm_enabled")) and _llm_ready,
                 key="llm_enabled",
                 on_change=_persist_pref,
@@ -145,5 +185,5 @@ def render_sidebar():
         _render_settings_component()
 
     # jieba NER 恒启用（开关已随「识别引擎」卡移除）
-    return mode, True, irreversible, learn_words
+    return mode, True, irreversible, learn_words, mask_style
 

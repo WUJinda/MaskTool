@@ -41,9 +41,10 @@ class DetectionResult:
     """单条检测结果"""
     text: str                        # 匹配到的原始文本
     text_type: DetectionType         # 类别
-    source: str                      # 来源: "regex" / "dictionary" / "ner" / "llm"
+    source: str                      # 来源: "regex" / "dictionary" / "ner" / "llm" / "manual"；文件名检测项会被改写为 "path"（表格展示用）
     confidence: float                # 置信度 0.0 ~ 1.0
     location: Location               # 文件内位置
     context: str = ""                # 上下文（前后各50字）
     llm_reason: str = ""             # AI 复核判定说明（空=未经 LLM 复核；P1）
+    origin_source: str = ""          # 被 source="path" 改写前的原始来源（空=未改写）；alias 风格边界等需要真实来源的场景用
     status: DetectionStatus = DetectionStatus.HINT_ONLY  # 待策略引擎决定

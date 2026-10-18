@@ -21,6 +21,16 @@ from pathlib import Path
 from typing import Dict
 
 
+def bracket_gate(token_map: Dict[str, dict]) -> bool:
+    """是否允许各还原路径启用 ``"[" in text`` 快速短路优化。
+
+    仅当 **全部** 键均为含 ``[`` 的 token 样式串时返回 True；只要存在
+    任意伪装词键（alias/混合批次），含伪装词但不含 ``[`` 的文本段落
+    就可能被短路误跳导致静默漏还原，必须禁用短路（宁慢勿漏）。
+    """
+    return bool(token_map) and all("[" in str(k) for k in token_map)
+
+
 def restore_file_content(f: Path, output_path: Path, token_map: Dict[str, dict]) -> None:
     """单文件内容还原：docx 走 walker，xlsx 走 restore_value（数值还原）。"""
     f = Path(f)
@@ -107,18 +117,20 @@ def restore_xlsx_file(
 
     keep_vba = input_path.suffix.lower() == ".xlsm"
     wb = load_workbook(str(input_path), rich_text=True, keep_vba=keep_vba)
+    # alias 伪装词批次禁用 '[' 短路（见 bracket_gate）：伪装词不含 '['
+    gate = bracket_gate(token_map)
 
     def restore_text(text: str):
         value, hits = XlsxAdapter.restore_value(text, token_map)
         return value if hits else None
 
     # 全局定义名称（与写入侧 _process_workbook 首步对称，R3-A1）
-    _restore_defined_names(getattr(wb, "defined_names", {}), restore_text)
+    _restore_defined_names(getattr(wb, "defined_names", {}), restore_text, gate)
 
     for ws in wb.worksheets:
-        _restore_data_validations(ws, restore_text)   # 写入侧 §4.4
+        _restore_data_validations(ws, restore_text, gate)   # 写入侧 §4.4
         _restore_defined_names(getattr(ws, "defined_names", {}),
-                               restore_text)          # 写入侧 §4.5（sheet 级）
+                               restore_text, gate)          # 写入侧 §4.5（sheet 级）
         for row in ws.iter_rows():
             for cell in row:
                 if isinstance(cell, MergedCell):
@@ -126,13 +138,13 @@ def restore_xlsx_file(
                 comment = getattr(cell, "comment", None)
                 if comment is not None:
                     text = getattr(comment, "text", None)
-                    if isinstance(text, str) and "[" in text:
+                    if isinstance(text, str) and (not gate or "[" in text):
                         value = restore_text(text)
                         if value is not None:
                             comment.text = value
                 # 超链接 tooltip（写入侧 §4.7 只写 token 进 tooltip）
                 tooltip = getattr(getattr(cell, "hyperlink", None), "tooltip", None)
-                if isinstance(tooltip, str) and "[" in tooltip:
+                if isinstance(tooltip, str) and (not gate or "[" in tooltip):
                     new_tooltip = restore_text(tooltip)
                     if new_tooltip is not None:
                         cell.hyperlink.tooltip = str(new_tooltip)
@@ -143,18 +155,18 @@ def restore_xlsx_file(
                     # 数组公式（ArrayFormula，R3-A2）：token 只写入 .text 的
                     # 双引号字面量内，整串替换等价；.text 为可写属性
                     formula = getattr(value, "text", None)
-                    if isinstance(formula, str) and "[" in formula:
+                    if isinstance(formula, str) and (not gate or "[" in formula):
                         new_formula = restore_text(formula)
                         if new_formula is not None:
                             value.text = str(new_formula)
                     continue
                 text = str(value)
-                if "[" not in text:
+                if gate and "[" not in text:
                     continue
                 if isinstance(value, CellRichText):
                     for i, block in enumerate(value):
                         block_text = block if isinstance(block, str) else getattr(block, "text", None)
-                        if isinstance(block_text, str) and "[" in block_text:
+                        if isinstance(block_text, str) and (not gate or "[" in block_text):
                             new_block, hits = XlsxAdapter.restore_value(block_text, token_map)
                             if hits:
                                 if isinstance(block, str):
@@ -173,7 +185,7 @@ def restore_xlsx_file(
             for position in ("left", "center", "right"):
                 part = getattr(item, position, None)
                 text = getattr(part, "text", None)
-                if isinstance(text, str) and "[" in text:
+                if isinstance(text, str) and (not gate or "[" in text):
                     value = restore_text(text)
                     if value is not None:
                         part.text = value
@@ -183,7 +195,7 @@ def restore_xlsx_file(
     wb.save(str(output_path))
 
 
-def _restore_data_validations(ws, restore_text) -> None:
+def _restore_data_validations(ws, restore_text, gate: bool = True) -> None:
     """数据验证 list 还原（R3-A1）：与写入侧 ``_process_data_validations``
     对称——token 写在引号包裹的逗号串内（``"item1,item2"`` 格式），
     剥引号整串替换后按原格式回写。"""
@@ -197,14 +209,14 @@ def _restore_data_validations(ws, restore_text) -> None:
                 or not formula1.startswith('"')):
             continue
         inner = formula1[1:-1] if formula1.endswith('"') else formula1[1:]
-        if not inner or "[" not in inner:
+        if not inner or (gate and "[" not in inner):
             continue
         new_inner = restore_text(inner)
         if new_inner is not None:
             dv.formula1 = '"' + str(new_inner) + '"'
 
 
-def _restore_defined_names(defined_names, restore_text) -> None:
+def _restore_defined_names(defined_names, restore_text, gate: bool = True) -> None:
     """定义名称还原（R3-A1）：值/备注整串 token 替换，与写入侧
     ``_process_defined_names`` 对称（token 只写入双引号字面量内，
     整串替换与逐字面量替换等价）。"""
@@ -215,7 +227,7 @@ def _restore_defined_names(defined_names, restore_text) -> None:
     for _name, dn in items:
         for attr in ("value", "comment"):
             text = getattr(dn, attr, None)
-            if isinstance(text, str) and "[" in text:
+            if isinstance(text, str) and (not gate or "[" in text):
                 new_text = restore_text(text)
                 if new_text is not None:
                     setattr(dn, attr, str(new_text))

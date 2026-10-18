@@ -9,7 +9,9 @@ import streamlit as st
 import pandas as pd
 import yaml
 
-from mask_tool.models.detection import DetectionStatus
+from mask_tool.models.detection import DetectionStatus, DetectionType
+from mask_tool.core.config_loader import resolve_user_lexicon_path
+from mask_tool.core.llm.adjudicator import is_ai_detected
 
 from ..artifacts import _mask_result_artifacts, _render_save_to_dir_panel
 from ..context_locate import (
@@ -26,7 +28,12 @@ from ..labels import (
     TYPE_LABELS,
 )
 from ..lexicon_io import _merge_words_into_whitelist
-from ..service import _run_detection, _run_masking
+from ..service import (
+    _load_config,
+    _run_detection,
+    _run_masking,
+    merge_words_into_lexicon,
+)
 from ..state import (
     _apply_grid_selection,
     _clear_task_state,
@@ -91,11 +98,236 @@ def _current_flow_step() -> int:
     return 1
 
 
+
+# # ──────────────────────────────────────────────
+# “加入词库”核查对话框（候选聚合 + 弹窗核查 + 立即写库）
+# # ──────────────────────────────────────────────
+
+_LEARN_CATEGORY_LABELS = {t.value: TYPE_LABELS[t] for t in DetectionType}
+
+
+def _read_lexicon_yaml(lexicon_path) -> dict:
+    """读词库 yaml 为 dict（文件缺失/IO 错误/yaml 损坏均视为空词库）。
+
+    加入词库链路（按钮预判与核查对话框）共用，保证两处读取口径一致；
+    读取失败只降级不阻断——预判失败照常弹窗，由对话框核查兜底。
+    """
+    try:
+        p = Path(lexicon_path)
+        if p.exists():
+            with open(p, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        pass
+    return {}
+
+
+def _lexicon_existing_words(existing: dict) -> set:
+    """从已读取的词库 dict 提取全部已有词集合（忽略非 list 类别）。"""
+    return {
+        w for words in existing.values() if isinstance(words, list) for w in words
+    }
+
+
+def _learn_category_options(existing: dict) -> list:
+    """类别下拉选项：系统八类 ∪ 词库现有自定义类别（英文 value，展示转中文）。"""
+    extra = {k for k, v in existing.items() if isinstance(v, list)}
+    return sorted(set(_LEARN_CATEGORY_LABELS) | extra)
+
+
+def _default_selection(result) -> bool:
+    """确认页默认勾选判定（纯函数，便于单测）。
+
+    - AUTO_MASK：默认勾选（含 aggressive 下升为自动档的 AI 检出）；
+    - SUGGEST_MASK：规则来源默认勾选；**AI 增量检出（source="llm"）默认不勾选**，
+      须用户显式确认——AI 检出置信度封顶 0.80、来自概率模型，落实“AI 只建议、
+      不自动替换”的安全边界，避免弱模型/幻觉检出被默认纳入脱敏污染交付物；
+    - HINT_ONLY：默认不勾选。
+    """
+    if result.status == DetectionStatus.AUTO_MASK:
+        return True
+    if result.status == DetectionStatus.SUGGEST_MASK:
+        return not is_ai_detected(result)
+    return False
+
+
+def _result_file_key(r, task_kind: str = "files", zip_root: str = "") -> str:
+    """结果条目对应的文件键（与 service._run_detection 登记口径一致；纯函数）。
+
+    zip 任务 = 相对 zip 根目录的 posix 相对路径（子目录同名文件互不串扰）；
+    单文件任务 = 文件名。location.file 为空返回空串；相对化失败回退文件名
+    （如历史会话残留数据）。
+    """
+    f = str(getattr(getattr(r, "location", None), "file", "") or "")
+    if not f:
+        return ""
+    p = Path(f)
+    if task_kind == "zip" and zip_root:
+        try:
+            return p.relative_to(zip_root).as_posix()
+        except ValueError:
+            return p.name
+    return p.name
+
+
+def _build_learn_candidates(all_results, indices, selections, existing_words):
+    """聚合“加入词库”候选词条（纯函数，对话框渲染与测试共用）。
+
+    - 按“词文本”去重聚合（同词多来源/多文件合并），类别取首次出现值；
+    - 已在词库的词（text in existing_words）直接过滤，不进候选列表：
+      对话框只展示新词，避免“已在词库仍可勾选”的重复写入路径；
+    - checked：该词任一来源行被勾选即为 True；候选范围内完全无勾选行
+      时回退为“全部候选默认勾选”（过滤后剩下的全是新词），对应“未
+      勾选直接点按钮”的用法，避免点击无反馈；判定看原始勾选行而非
+      聚合后 checked（勾选的词可能恰好都已在词库被过滤）；
+    - 返回按 (类别, 词文本) 排序的 list[dict]。
+    """
+    agg = {}
+    for i in indices:
+        r = all_results[i]
+        ent = agg.setdefault(r.text, {
+            "category": r.text_type.value,
+            "sources": [],
+            "files": set(),
+            "confidence": 0.0,
+            "checked": False,
+        })
+        if r.source not in ent["sources"]:
+            ent["sources"].append(r.source)
+        if r.location.file:
+            ent["files"].add(Path(r.location.file).name)
+        ent["confidence"] = max(ent["confidence"], float(r.confidence))
+        if selections.get(i, False):
+            ent["checked"] = True
+
+    candidates = []
+    for text, ent in agg.items():
+        if text in existing_words:
+            continue  # 已在词库：不再作为候选词条展示，防重复加入
+        candidates.append({
+            "text": text,
+            "category": ent["category"],
+            "sources": " · ".join(SOURCE_LABELS.get(s, s) for s in ent["sources"]),
+            "file_count": len(ent["files"]),
+            "confidence": ent["confidence"],
+            "checked": ent["checked"],
+        })
+    if candidates and not any(selections.get(i, False) for i in indices):
+        for c in candidates:
+            c["checked"] = True
+    candidates.sort(key=lambda c: (c["category"], c["text"]))
+    return candidates
+
+
+@st.dialog("📚 加入词库", width="large")
+def _learn_to_lexicon_dialog(all_results, mode):
+    """“加入词库”核查对话框：勾选词条 → 调整类别 → 确认立即写入词库。
+
+    - 候选范围 = 点击按钮时的筛选视图快照（learn_candidates_idx，
+      已含与页面一致的搜索关键字过滤）；
+    - 已在词库中的词不进候选（_build_learn_candidates 已过滤），
+      对话框只展示新词；caption 注明自动略过数，避免词条变少生疑；
+    - 默认勾选 = 已勾选检测项（未勾选任何项时回退为全部候选）；
+    - 确认后立即写入 cfg.lexicon_path（管线真正加载的那份词库），
+      结果经 learn_flash 在主页展示；同时清空 learn_set——
+      脱敏阶段不再重复写（旧自动写库路径保留给 CLI/兼容场景）。
+    """
+    idx = st.session_state.get("learn_candidates_idx") or []
+    if not idx:
+        st.warning("当前没有可加入词库的检测项，请先检测")
+        return
+
+    cfg = _load_config(mode)
+    lexicon_path = Path(cfg.lexicon_path)
+    existing = _read_lexicon_yaml(lexicon_path)
+    existing_words = _lexicon_existing_words(existing)
+    cat_options = _learn_category_options(existing)
+
+    selections = st.session_state.get("user_selections", {})
+    candidates = _build_learn_candidates(
+        all_results, idx, selections, existing_words,
+    )
+    if not candidates:
+        # 预判与弹窗之间的极端窗口（如词库读取失败又被他处写入）：
+        # 过滤后无新词可加，直接提示不渲染空列表
+        st.info("所列检测词均已在词库中，无需重复加入")
+        return
+    fallback = not any(selections.get(i, False) for i in idx)
+    skipped_count = len({all_results[i].text for i in idx} & existing_words)
+    if fallback:
+        st.info(
+            f"未勾选任何检测项，已默认带出当前筛选视图全部 **{len(candidates)}** 个新词条，"
+            "请逐条核查后再确认"
+        )
+    skipped_note = f"（另有 {skipped_count} 个词已在词库，已自动略过）" if skipped_count else ""
+    st.caption(
+        f"共 **{len(candidates)}** 个词条{skipped_note}。"
+        "加入后这些词将按词典匹配（置信度 0.95）参与后续脱敏，"
+        "可随时在「词库管理」中移除。"
+    )
+
+    token = st.session_state.get("learn_dialog_token", "")
+    with st.container(height=min(420, 60 * len(candidates) + 48)):
+        for n, c in enumerate(candidates):
+            row = st.columns([2.4, 0.9, 1.1])
+            with row[0]:
+                st.checkbox(
+                    f"{c['text'][:44]}{'…' if len(c['text']) > 44 else ''}"
+                    f"　|　{c['sources']}",
+                    value=c["checked"],
+                    key=f"learn_chk_{token}_{n}",
+                )
+            with row[1]:
+                st.caption(f"置信度 {c['confidence']:.2f}")
+            with row[2]:
+                _default = (
+                    c["category"] if c["category"] in cat_options else cat_options[0]
+                )
+                st.selectbox(
+                    "类别",
+                    options=cat_options,
+                    index=cat_options.index(_default),
+                    format_func=lambda v: _LEARN_CATEGORY_LABELS.get(v, v),
+                    key=f"learn_cat_{token}_{n}",
+                    label_visibility="collapsed",
+                )
+
+    checked_count = sum(
+        1 for n in range(len(candidates))
+        if st.session_state.get(f"learn_chk_{token}_{n}", False)
+    )
+    btn_cols = st.columns(2)
+    if btn_cols[0].button(
+        f"✓ 加入词库（{checked_count} 个词条）",
+        type="primary",
+        width="stretch",
+        disabled=checked_count == 0,
+    ):
+        learned: Dict[str, list] = {}
+        for n, c in enumerate(candidates):
+            if st.session_state.get(f"learn_chk_{token}_{n}", False):
+                cat = st.session_state.get(f"learn_cat_{token}_{n}", c["category"])
+                learned.setdefault(cat, []).append(c["text"])
+        ok, new_count, msg = merge_words_into_lexicon(lexicon_path, learned)
+        if ok:
+            # 词已立即写库：清空 learn_set，脱敏阶段不再重复写
+            st.session_state.pop("learn_set", None)
+            st.session_state["learn_flash"] = {
+                "msg": f"✅ 已将 {new_count} 个新词写入词库",
+                "path": str(lexicon_path),
+            }
+            st.rerun()  # 关闭对话框，主页展示结果
+        else:
+            st.error(f"写入失败：{msg}")
+    if btn_cols[1].button("取消", width="stretch"):
+        st.rerun()
+
+
 # ──────────────────────────────────────────────
 # 标签页1：脱敏处理
 # ──────────────────────────────────────────────
 
-def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_words: bool):
+def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_words: bool, mask_style: str = "token"):
     """渲染脱敏处理标签页"""
 
     # 如果已有脱敏结果，展示结果页面
@@ -194,8 +426,9 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             unsafe_allow_html=True,
         )
     with mi_cols[1]:
-        # 同时脱敏文件名（仅处理主名，不改扩展名）；副说明由 app.css ::after 注入。
-        # 持久化：初值取自配置，on_change 写回（sidebar._persist_pref）
+        # 同时脱敏文件名（仅处理主名，不改扩展名）；说明文字走 help=
+        # 问号悬停提示（与侧栏一致的策略）。持久化：初值取自配置，
+        # on_change 写回（sidebar._persist_pref）
         st.markdown('<div class="mi-right-title">本次任务选项</div>', unsafe_allow_html=True)
         from ..sidebar import _persist_pref
         from mask_tool.core.app_settings import get_ui_prefs
@@ -206,6 +439,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             key="mask_filenames",
             on_change=_persist_pref,
             args=("mask_filenames",),
+            help="对文件主名（不含扩展名）执行同样的检测与替换，Token 与正文共享",
         )
         manual_only = st.checkbox(
             "仅脱敏我指定的词",
@@ -213,6 +447,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             key="manual_only_mode",
             on_change=_persist_pref,
             args=("manual_only_mode",),
+            help="完全跳过自动检测（NER/正则/词库），只处理左侧指定的词；适合误报多时",
         )
 
     if st.button("🔍 开始检测", type="primary", width="stretch"):
@@ -290,11 +525,17 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     # 初始化选择状态
     _render_llm_banner()
 
+    # “加入词库”核查对话框的结果反馈（确认后 rerun 到主页展示）
+    _learn_flash = st.session_state.pop("learn_flash", None)
+    if _learn_flash:
+        st.success(_learn_flash["msg"])
+        st.caption(f"词库文件：{_learn_flash['path']}")
+
     if "user_selections" not in st.session_state:
-        # 默认：自动脱敏和建议脱敏的项都勾选
+        # 默认勾选：自动脱敏项 + 规则来源的建议项；AI 增量检出（source="llm"）
+        # 落建议档时默认不勾选，须用户显式确认（见 _default_selection 说明）
         st.session_state["user_selections"] = {
-            i: (r.status in (DetectionStatus.AUTO_MASK, DetectionStatus.SUGGEST_MASK))
-            for i, r in enumerate(all_results)
+            i: _default_selection(r) for i, r in enumerate(all_results)
         }
 
     # 筛选工具条：行一 = 四个下拉；行二 = 搜索 + 批量操作（原型 filter-bar-preview）。
@@ -315,7 +556,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     with filter_cols[2]:
         filter_source = st.selectbox(
             "来源",
-            options=["全部来源", "✍️ 手动", "📘 词典", "⚙️ NER", "🔍 正则", "📄 文件名"],
+            options=["全部来源", "✍️ 手动", "📘 词典", "⚙️ NER", "🔍 正则", "📄 文件名", "✨ AI"],
             key="filter_source",
         )
     with filter_cols[3]:
@@ -325,7 +566,12 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             key="filter_file",
         )
 
-    # 应用筛选
+    # 应用筛选：下拉四项 → 搜索关键字，全部作用完再渲染批量按钮，
+    # 保证「全选/清空/反选/仅自动/仅建议」、选中计数、表格三者同一视图
+    # （此前批量按钮先于搜索生效：搜索后点全选会勾到被搜索隐藏的行，
+    # 仅自动/仅建议会误清隐藏行）
+    _task_kind = st.session_state.get("task_kind", "files")
+    _zip_root = str(st.session_state.get("zip_tree_root") or "")
     filtered_indices = []
     for i, r in enumerate(all_results):
         # 类别筛选
@@ -349,19 +595,21 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
                 "⚙️ NER": "ner",
                 "🔍 正则": "regex",
                 "📄 文件名": "path",
+                "✨ AI": "llm",
             }
             if r.source != source_map.get(filter_source):
                 continue
-        # 文件筛选
+        # 文件筛选：与 file_results 登记同口径（zip 任务=相对路径，
+        # 单文件=文件名）。此前按 basename 比较：zip 子目录文件永远
+        # 筛不出、不同子目录同名文件互相串结果
         if filter_file != "全部文件":
-            if Path(r.location.file).name != filter_file:
+            if _result_file_key(r, _task_kind, _zip_root) != filter_file:
                 continue
         filtered_indices.append(i)
-    # 注：搜索过滤在下方搜索框实例化之后应用（1.64 语义：widget 实例化
-    # 时才把前端新值写入 session_state；渲染前读会滞后一轮）
 
-    # 行二：搜索 + 批量操作（作用于当前筛选结果）
-    batch_cols = st.columns([1.6, 0.7, 0.7, 0.7, 0.85, 0.85, 1.3])
+    # 行二：搜索 + 批量操作（作用于当前筛选结果）；末列（加入词库）
+    # 权重 2.5 -> 1.75：水平收缩 30%，其余按钮 stretch 自动分摊铺满
+    batch_cols = st.columns([1.5, 0.62, 0.62, 0.62, 0.78, 0.78, 1.75])
     with batch_cols[0]:
         search_text = st.text_input(
             "搜索",
@@ -369,6 +617,16 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             key="search_text",
             label_visibility="collapsed",
         )
+    # 搜索过滤：search_text 刚实例化，值为最新（1.64 语义：widget 实例化
+    # 时才把前端新值写入 session_state）。先于批量按钮应用——批量操作、
+    # 选中计数、表格三者始终同一视图
+    if search_text:
+        _kw = search_text.lower()
+        filtered_indices = [
+            i for i in filtered_indices
+            if _kw in all_results[i].text.lower()
+            or _kw in all_results[i].context.lower()
+        ]
     with batch_cols[1]:
         if st.button("✓ 全选", width="stretch"):
             for i in filtered_indices:
@@ -399,22 +657,32 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
                 )
             st.rerun()
     with batch_cols[6]:
-        if st.button("📚 加入词库", width="stretch"):
-            for i in filtered_indices:
-                st.session_state["user_selections"][i] = True
-                if "learn_set" not in st.session_state:
-                    st.session_state["learn_set"] = set()
-                st.session_state["learn_set"].add(i)
-            st.rerun()
-
-    # 搜索过滤（search_text 刚实例化，值为最新）
-    if search_text:
-        _kw = search_text.lower()
-        filtered_indices = [
-            i for i in filtered_indices
-            if _kw in all_results[i].text.lower() or _kw in all_results[i].context.lower()
-        ]
-
+        if st.button(
+            "📚 加入词库", width="stretch",
+            help="弹窗核查勾选的敏感词后立即写入词库（可调整类别，已在词库中的词自动略过）",
+        ):
+            # filtered_indices 已含搜索过滤，与页面显示天然同口径
+            _view = filtered_indices
+            if not _view:
+                st.info("当前筛选结果为空，没有可加入词库的检测项")
+            else:
+                # 预判：视图内全部词都已在词库 → 不弹核查列表，直接提示。
+                # 词库路径用 resolve_user_lexicon_path：轻量、不触发
+                # _load_config 的事件渲染，且与对话框 cfg.lexicon_path 同源；
+                # 读取失败视为空词库，照常弹窗由对话框核查兜底
+                _texts = {all_results[i].text for i in _view}
+                if _texts <= _lexicon_existing_words(
+                    _read_lexicon_yaml(resolve_user_lexicon_path())
+                ):
+                    st.info(
+                        f"所列 **{len(_texts)}** 个词均已在词库中，无需重复加入"
+                    )
+                else:
+                    st.session_state["learn_candidates_idx"] = _view
+                    # 每次打开换新 token：对话框内控件 key 带前缀，避免上一次
+                    # 弹窗的勾选态串扰本次（同 _confirm_mask_dialog 的做法）
+                    st.session_state["learn_dialog_token"] = uuid4().hex[:8]
+                    _learn_to_lexicon_dialog(all_results, mode)
     # 选中计数（表格上方右对齐）
     selected_count = sum(
         1 for i in filtered_indices if st.session_state["user_selections"].get(i, False)
@@ -447,7 +715,8 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             if _has_llm:  # AI 判定插在处置与文件之间
                 _reason = r.llm_reason or ""
                 _row["AI 判定"] = _reason[:44] + ("…" if len(_reason) > 44 else "")
-            _row["文件"] = Path(r.location.file).name if r.location.file else ""
+            # 与文件筛选同口径：zip 任务显示相对路径（子目录同名文件可区分）
+            _row["文件"] = _result_file_key(r, _task_kind, _zip_root)
             _row["上下文"] = r.context[:80] + "..." if len(r.context) > 80 else r.context
             _row["loc"] = 0  # 隐藏列：上下文点击回传通道（context_locate.py）
             display_rows.append(_row)
@@ -548,9 +817,12 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     # R9：未勾选项一键永久排除——勾选瞬间把当前所有未勾选的检测词
     # 写入白名单（去重），点「重新检测」后不再被识别；白名单可在
     # 「设置 → 词库管理 → 白名单」维护。替代原 whitelist.yaml 手工提示。
+    # 排除 AI 增量检出项：AI 建议档默认不勾选（见 _default_selection），
+    # 若一并计入会把“用户尚未审阅的 AI 真阳性”写进白名单 → 之后永不识别。
     unchecked_words = list(dict.fromkeys(
         r.text for i, r in enumerate(all_results)
         if not st.session_state["user_selections"].get(i, False)
+        and not is_ai_detected(r)
     ))
     exclude_unchecked = st.checkbox(
         "对未勾选的敏感词进行永久排除",
@@ -632,6 +904,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             ner_enabled=ner_enabled,
             irreversible=irreversible,
             learn_words=learn_words,
+            mask_style=mask_style,
             mask_filenames=mask_filenames,
             custom_words_text=custom_words_text,
             manual_only=manual_only,
@@ -667,6 +940,13 @@ def _render_llm_banner():
         hits = s.get("cache_hits", 0)
         if hits:
             stat += f" · 缓存命中 {hits} 次"
+        # T2.3：确认页对 AI 建议的采纳统计（脱敏结束后写入）
+        if s.get("ai_detected"):
+            stat += (f" · AI 检出采用 {s.get('ai_detected_accepted', 0)}"
+                     f"/{s.get('ai_detected')}")
+        if s.get("ai_dropped"):
+            stat += (f" · AI 剔除被改回 {s.get('ai_dropped_overridden', 0)}"
+                     f"/{s.get('ai_dropped')}")
         st.info("✨ **AI 增强已生效**　" + " · ".join(parts) + "\n\n" + stat)
     else:
         reason = s.get("first_error") or "未知原因"
@@ -687,7 +967,7 @@ def _render_llm_banner():
 @st.dialog("✅ 确认脱敏内容", width="large")
 def _confirm_mask_dialog(uploaded_files, final_selected, all_results,
                          mode, ner_enabled, irreversible, learn_words,
-                         mask_filenames, custom_words_text, manual_only):
+                         mask_style, mask_filenames, custom_words_text, manual_only):
     """执行前确认弹窗：check list 终审 + 批次信息填写。
 
     - 清单默认全勾选（继承主表格勾选）；弹窗内取消的项本次不脱敏，
@@ -768,7 +1048,8 @@ def _confirm_mask_dialog(uploaded_files, final_selected, all_results,
         _run_masking(
                 uploaded_files, dialog_selected, all_results,
                 mode, ner_enabled, irreversible, learn_words,
-                batch_id, batch_name, mask_filenames=mask_filenames,
+                batch_id, batch_name, mask_style=mask_style,
+                mask_filenames=mask_filenames,
                 manual_words=_parse_custom_words(custom_words_text),
                 manual_only=manual_only,
             )
@@ -789,6 +1070,9 @@ def _render_mask_result():
         '</div>',
         unsafe_allow_html=True,
     )
+
+    # AI 增强运行摘要（含确认页采纳率，脱敏结束时由 service 固化）
+    _render_llm_banner()
 
     # 映射表信息
     mappings = result.get("mappings", [])

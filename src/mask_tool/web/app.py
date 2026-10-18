@@ -152,7 +152,7 @@ def main():
     _inject_theme_bridge()
 
     # 侧边栏
-    mode, ner_enabled, irreversible, learn_words = render_sidebar()
+    mode, ner_enabled, irreversible, learn_words, mask_style = render_sidebar()
 
     # 标题（紧凑行：logo + 标题；流程语义已由步骤条承载，不再重复副标题）
     st.markdown(
@@ -164,7 +164,7 @@ def main():
     tab1, tab2 = st.tabs(["⛔ 脱敏处理", "♻️ 恢复还原"])
 
     with tab1:
-        _render_masking_tab(mode, ner_enabled, irreversible, learn_words)
+        _render_masking_tab(mode, ner_enabled, irreversible, learn_words, mask_style)
 
     with tab2:
         _render_restore_tab()

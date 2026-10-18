@@ -5,6 +5,19 @@ from pathlib import Path
 from typing import Optional, Union
 
 
+def _coerce_bool(v) -> bool:
+    """把 YAML 手写引号布尔（"false"/"true"/"0"/"1"）归一化为真布尔。
+
+    YAML 里 trusted_endpoint: "false"（带引号）会被解析成字符串，
+    bool("false") == True 会让隐私门禁反向失效，必须在构造时纠正。
+    """
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
+
+
 @dataclass
 class Thresholds:
     """置信度阈值配置"""
@@ -38,7 +51,8 @@ class LLMConfig:
     base_url: str = ""                 # 如 http://localhost:11434/v1
     model: str = ""                    # 如 qwen3:8b / 内网服务注册名
     api_key: str = ""                  # 内网通常留空；空时读环境变量 MASKTOOL_LLM_API_KEY
-    trusted_endpoint: bool = True      # 内网端点信任标记（不弹隐私确认）
+    trusted_endpoint: bool = False     # 端点信任标记：False（默认）时，外部（非本机/内网）
+                                       # 端点在 CLI/评测路径记录隐私告警；Web UI 无门禁
     batch_size: int = 20               # 每请求合并候选条数
     max_concurrency: int = 2           # 并发上限（P1 串行，字段预留）
     timeout_seconds: int = 30
@@ -46,6 +60,11 @@ class LLMConfig:
     wall_clock_budget_seconds: int = 180  # LLM 增强总时长预算（秒），0=不限制
     cache: bool = True                 # 同 (text, source, type) 判定复用
     last_test: Optional[dict] = None   # UI 层持久化连通状态 {ok,msg,at,sig}（不参与检测链路）
+
+    def __post_init__(self):
+        # 布尔字段归一化：防御 YAML 手写引号布尔导致的 fail-open。
+        self.enabled = _coerce_bool(self.enabled)
+        self.trusted_endpoint = _coerce_bool(self.trusted_endpoint)
 
 
 @dataclass
@@ -66,6 +85,8 @@ class PerformanceConfig:
 class MaskConfig:
     """全局配置"""
     mode: str = "smart"                          # strict / smart / aggressive
+    mask_style: str = "token"                    # 替换串风格: token（[COMPANY_001]）/ alias（汤姆/A集团）
+    alias_lexicon_path: str = "config/alias_lexicon.yaml"   # 伪装词池配置（alias 风格时生效，缺失用内置默认）
     thresholds: Thresholds = field(default_factory=Thresholds)
     ocr: OCRConfig = field(default_factory=OCRConfig)
     ner: NERConfig = field(default_factory=NERConfig)
@@ -96,6 +117,9 @@ class MaskConfig:
 
         return cls(
             mode=data.get("mode", "smart"),
+            mask_style=data.get("mask_style", "token"),
+            alias_lexicon_path=data.get(
+                "alias_lexicon_path", "config/alias_lexicon.yaml"),
             thresholds=thresholds,
             ocr=ocr,
             ner=ner,

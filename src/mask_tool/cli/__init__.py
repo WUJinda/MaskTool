@@ -12,7 +12,7 @@
 - --confirm 重构（H6/N3）：walker 全文检测 -> 勾选 ->
   pipeline.process_file(allowed_originals, statuses={AUTO,SUGGEST})；
   _write_masked_file 已删除，不再出现"纯文本写 .pdf"路径。
-- _collect_files 使用 core.formats 常量，PPT/PDF 命中 BLOCKED_EXTS 黄色警告跳过。
+- _collect_files 使用 core.formats 常量，PPT 命中 BLOCKED_EXTS 黄色警告跳过。
 """
 
 import json
@@ -141,7 +141,7 @@ def _collect_files(
     input_path: Path,
     exclude: Optional[List[Path]] = None,
 ) -> List[Path]:
-    """收集要处理的文件（递归；PPT/PDF 命中 BLOCKED_EXTS 黄色警告跳过）。
+    """收集要处理的文件（递归；PPT 命中 BLOCKED_EXTS 黄色警告跳过）。
 
     exclude（R1-B1）：目录收集时排除位于这些目录（含子树）内的文件，
     防止输出目录在源目录内部时历史批次产物被再次吸入（自嵌套）。
@@ -220,11 +220,39 @@ def _new_confirm_engine():
 # mask 命令
 # ---------------------------------------------------------------------------
 
+def _warn_alias_degradation(pipeline) -> None:
+    """alias 风格降级提示：词池耗尽（部分实体回退占位符）/ 避让预扫描超限/截断。
+
+    生成器无这些属性（token 风格）时静默通过。"""
+    gen = getattr(pipeline, "token_gen", None)
+    exhausted = getattr(gen, "exhausted_categories", None)
+    if callable(exhausted):
+        cats = exhausted()
+        if cats:
+            console.print(
+                f"[yellow]警告: 伪装词池已耗尽（{('、'.join(cats))}），"
+                "部分实体回退占位符样式；可在 config/alias_lexicon.yaml 扩充词池[/yellow]"
+            )
+    if getattr(gen, "_source_overflow", False):
+        console.print(
+            "[yellow]警告: 避让预扫描登记量达上限，部分文件未参与撞词避让"
+            "（还原对账仍会兜底校验）[/yellow]"
+        )
+    if getattr(gen, "_blob_truncated", False):
+        console.print(
+            "[yellow]警告: 个别文件预扫描文本过大被截断，截断部分不参与撞词避让[/yellow]"
+        )
+
+
 @app.command()
 def mask(
     input_path: List[Path] = typer.Argument(..., help="输入文件或目录路径", exists=True),
     output: Path = typer.Option("./output", "--output", "-o", help="输出目录（产物写入其下批次目录）"),
     mode: str = typer.Option("smart", "--mode", "-m", help="运行模式: focused/strict/smart/aggressive"),
+    style: Optional[str] = typer.Option(
+        None, "--style",
+        help="替换串风格: token（[COMPANY_001] 占位符）/ alias（汤姆/A集团式伪装词）；缺省跟随配置文件 mask_style",
+    ),
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="配置文件路径"),
     irreversible: bool = typer.Option(False, "--irreversible", help="使用不可逆脱敏"),
     confirm: bool = typer.Option(False, "--confirm", help="启用交互式确认模式（逐项勾选）"),
@@ -243,18 +271,28 @@ def mask(
 
     单文件：产物写入批次目录，默认主名同步脱敏并追加 _masked 后缀
     （--no-mask-names 关闭，关闭后为 {stem}_masked.ext）。
-    目录：递归处理 docx/xlsx 到批次目录下的镜像树（保持原文件名），
-    非文档文件原样拷贝，pptx/pdf 跳过并警告；--confirm 下未勾选
+    目录：递归处理 docx/xlsx/xlsm/pdf 到批次目录下的镜像树（保持原文件名），
+    非文档文件原样拷贝，pptx 跳过并警告（pdf 仅支持文本型，扫描/加密件报错）；--confirm 下未勾选
     （内容未脱敏）的文件拷入镜像树内 skipped_unmasked/ 隔离子目录；
     默认对镜像树做文件名/目录名脱敏（--no-mask-names 关闭）。
     """
-    console.print(f"[bold green]mask-tool[/bold green] v{__version__}")
-    console.print(
-        f"模式: {mode} | 不可逆: {irreversible} | 确认: {'开' if confirm else '关'}"
-        f" | 建议项(--all): {'开' if all_items else '关'}"
-    )
+    if style is not None and style not in ("token", "alias"):
+        console.print(f"[red]错误: --style 取值须为 token 或 alias，收到 {style!r}[/red]")
+        raise typer.Exit(1)
 
     cfg = _load_config(config, mode)
+    # 替换串风格：--style 显式指定 > 配置文件 mask_style（M-2：缺省不再覆盖，
+    # 配置文件里的 mask_style: alias 现在真实生效）；非法配置值回退 token
+    if style is not None:
+        cfg.mask_style = style
+    elif cfg.mask_style not in ("token", "alias"):
+        cfg.mask_style = "token"
+
+    console.print(f"[bold green]mask-tool[/bold green] v{__version__}")
+    console.print(
+        f"模式: {mode} | 风格: {cfg.mask_style} | 不可逆: {irreversible} | 确认: {'开' if confirm else '关'}"
+        f" | 建议项(--all): {'开' if all_items else '关'}"
+    )
     # P3：CLI 强制开关覆盖配置（True=强制启用；False=强制禁用；None=跟随配置）
     if llm is not None:
         cfg.llm.enabled = llm
@@ -381,6 +419,9 @@ def mask(
             f"[dim]提示: 检测到旧版平铺映射表 {legacy_flat}，可能属于历史批次，"
             "本轮已改为批次目录存放，不会覆盖该文件[/dim]"
         )
+
+    # alias 降级透出（审查 Minor-3）：词池耗尽 / 避让预扫描超限不再静默降级
+    _warn_alias_degradation(pipeline)
 
     # 打印摘要
     summary = pipeline.report.summary()
@@ -537,7 +578,7 @@ def _mask_directory_tree(
     """目录模式（D3 集成）：镜像树构建 + 文件名/目录名脱敏。
 
     流程：docx/xlsx -> process_file（output_name=原文件名，不加 _masked）；
-    非文档文件原样拷贝；pptx/pdf 已在上游警告跳过；
+    非文档文件原样拷贝；pptx 已在上游警告跳过；
     --confirm 下未勾选（无确认项）的文件不再混入产物树，拷入
     skipped_unmasked/ 隔离子目录（R1-B9，mask_tree 计划对其豁免改名）；
     空目录（含仅含空目录的链）一并迁移，目录名随 mask_tree 计划脱敏（R1-B7）；
@@ -677,7 +718,7 @@ def _mask_tree_root_name(
         if r.text_type.value not in categories:
             categories.append(r.text_type.value)
         if not path_masker.irreversible and r.text in old_name:
-            token = path_masker.token_gen.generate(r.text, r.text_type)
+            token = path_masker.token_gen.generate(r.text, r.text_type, r.origin_source or r.source)
             if token not in tokens_used:
                 tokens_used.append(token)
     try:
@@ -809,13 +850,17 @@ def unmask(
             for w in result.warnings:
                 console.print(f"  [yellow]{w}[/yellow]")
 
-    # M3 防线二：还原后对账扫描
+    # M3 防线二：还原后对账扫描。token 样式串走正则；alias 伪装词无固定
+    # 样式，按映射表键（不含 '[' 的替换串）逐一精确查残留（混合批次两套
+    # 并行，style 字段仅作提示，判定以键形态为准以免手工编辑过的映射表漏检）
+    alias_keys = [k for k in token_map if k and "[" not in k]
     bad_residual: List[Tuple[Path, str]] = []
     for doc in restored_docs:
         try:
-            residual = ReplacementEngine.scan_tokens(_extract_text(doc))
+            full_text = _extract_text(doc)
         except Exception:
             continue
+        residual = ReplacementEngine.scan_tokens(full_text)
         for token in sorted(residual):
             if token in token_map:
                 bad_residual.append((doc, token))
@@ -824,10 +869,15 @@ def unmask(
                     f"[yellow]警告: {doc.name} 含 token 样式文本 {token}，"
                     "不在本次映射表中（文档自然文本或跨批次文件），未做还原[/yellow]"
                 )
+        if alias_keys:
+            for alias in sorted(
+                ReplacementEngine.scan_alias_residuals(full_text, alias_keys)
+            ):
+                bad_residual.append((doc, alias))
     if bad_residual:
         for doc, token in bad_residual:
             console.print(
-                f"[red]错误: {doc.name} 还原后仍残留映射表内 token {token}（还原缺陷）[/red]"
+                f"[red]错误: {doc.name} 还原后仍残留映射表内替换串 {token!r}（还原缺陷）[/red]"
             )
         if not force:
             raise typer.Exit(1)
@@ -1118,7 +1168,8 @@ def config_init(
     console.print(f"[bold green]mask-tool[/bold green] v{__version__}")
 
     from mask_tool.core.templates import (
-        DEFAULT_CONFIG_YAML, SAMPLE_LEXICON_YAML, WHITELIST_YAML,
+        ALIAS_LEXICON_YAML, DEFAULT_CONFIG_YAML, SAMPLE_LEXICON_YAML,
+        WHITELIST_YAML,
     )
 
     target_dir = Path(output) / "config"
@@ -1128,6 +1179,7 @@ def config_init(
         "default.yaml": DEFAULT_CONFIG_YAML,
         "sample_lexicon.yaml": SAMPLE_LEXICON_YAML,
         "whitelist.yaml": WHITELIST_YAML,
+        "alias_lexicon.yaml": ALIAS_LEXICON_YAML,
     }
     for name, content in templates.items():
         target = target_dir / name

@@ -43,8 +43,8 @@ class TestRenderSmoke:
         at.run()
 
         assert not at.exception, f"页面渲染异常: {[e.value for e in at.exception]}"
-        # 骨架在位：侧栏运行模式选择 + 双标签页（脱敏/恢复）
-        assert len(at.sidebar.selectbox) == 1, "侧栏运行模式选择框缺失"
+        # 骨架在位：侧栏运行模式 + 替换风格双选择框 + 双标签页（脱敏/恢复）
+        assert len(at.sidebar.selectbox) == 2, "侧栏应含运行模式与替换风格两个选择框"
         assert len(at.tabs) == 2, "主界面双标签页缺失"
         # 侧栏按钮（新建脱敏任务）
         assert len(at.sidebar.button) >= 1, "侧栏新建任务按钮缺失"

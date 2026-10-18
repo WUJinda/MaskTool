@@ -25,13 +25,15 @@ class TokenGenerator:
         self._token_map: Dict[str, str] = {}  # original -> token
         self._reserved: set = set()            # M3：文档中已存在的 token 样式串，编号让位
 
-    def generate(self, original: str, text_type: DetectionType) -> str:
+    def generate(self, original: str, text_type: DetectionType, source: str = "") -> str:
         """
         为原文生成Token。同一原文在同一次运行中返回相同Token。
 
         Args:
             original: 原始文本
             text_type: 敏感信息类别
+            source: 检测来源（regex/dictionary/ner/manual/llm）；本生成器
+                不区分来源，仅为与 AliasGenerator 的签名保持兼容
 
         Returns:
             Token字符串，如 "[COMPANY_001]"

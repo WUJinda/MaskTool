@@ -17,7 +17,9 @@
 import io
 import inspect
 import json
+import struct
 import zipfile
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -95,6 +97,45 @@ def _make_dir_zip_bytes(members: dict) -> bytes:
     return buf.getvalue()
 
 
+def _make_legacy_zip_bytes(members: dict) -> bytes:
+    """手工构造不带 UTF-8 标志的 legacy zip（成员名为原始 GBK 字节）。
+
+    zipfile 自身无法产出这种包（writestr 对非 ASCII 名强制 UTF-8+标志），
+    而这正是中文 Windows 资源管理器/WinRAR 打包的真实形态，也是
+    GBK 名被按 CP437 误解码问题的最小复现载体。
+    """
+    def _member_bytes(raw_name: bytes, data: bytes, header_offset: int):
+        crc = zlib.crc32(data) & 0xFFFFFFFF
+        local = struct.pack(
+            "<IHHHHHIIIHH", 0x04034B50, 20, 0, 0, 0, 0,
+            crc, len(data), len(data), len(raw_name), 0,
+        ) + raw_name + data
+        central = struct.pack(
+            "<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0, 0, 0, 0,
+            crc, len(data), len(data), len(raw_name), 0, 0, 0, 0, 0,
+            header_offset,
+        ) + raw_name
+        return local, central
+
+    buf = io.BytesIO()
+    centrals = []
+    offset = 0
+    for name, data in members.items():
+        payload = data.encode("utf-8") if isinstance(data, str) else data
+        local, central = _member_bytes(name.encode("gbk"), payload, offset)
+        buf.write(local)
+        centrals.append(central)
+        offset += len(local)
+    cd = b"".join(centrals)
+    cd_start = offset
+    buf.write(cd)
+    buf.write(struct.pack(
+        "<IHHHHIIH", 0x06054B50, 0, 0, len(centrals), len(centrals),
+        len(cd), cd_start, 0,
+    ))
+    return buf.getvalue()
+
+
 # ===========================================================================
 # _safe_unzip：解压防护
 # ===========================================================================
@@ -145,6 +186,33 @@ class TestSafeUnzip:
         payload = _make_dir_zip_bytes({"big.bin": b"x" * 32})
         with pytest.raises(ValueError, match="总大小"):
             web._safe_unzip(payload, tmp_path)
+
+    def test_gbk_member_name_decoded(self, monkeypatch, tmp_path):
+        """GBK 成员名（未设 UTF-8 标志，中文 Windows 压缩工具形态）→
+        解压后文件名还原为正确中文，而非 CP437 乱码。
+
+        回归：确认弹窗/检测清单中文件名显示为“─Ω╢╚”式乱码
+        （如“2025年度职代会参会人员名单.xls”变乱码）的根因即此。"""
+        web = pytest.importorskip("mask_tool.web.app")
+        payload = _make_legacy_zip_bytes({
+            "2025年度职代会参会人员名单-测评票分类统计.xls": b"fake-xls",
+            "项目资料/合同-李四.docx": b"fake-docx",
+        })
+        root = web._safe_unzip(payload, tmp_path)
+        names = {p.name for p in root.rglob("*")}
+        assert "2025年度职代会参会人员名单-测评票分类统计.xls" in names
+        assert "合同-李四.docx" in names
+        # CP437 乱码特征字符不得再出现
+        assert not any(
+            any(ch in n for ch in "─╢╓┤╗▓╬╚╘├╡╤═╝ú¿") for n in names
+        )
+
+    def test_utf8_flag_member_name_untouched(self, monkeypatch, tmp_path):
+        """UTF-8 标志成员名（macOS/新版工具形态）→ 解码结果不受影响。"""
+        web = pytest.importorskip("mask_tool.web.app")
+        payload = _make_dir_zip_bytes({"项目资料/汇报-李四.xlsx": b"fake-xlsx"})
+        root = web._safe_unzip(payload, tmp_path)
+        assert (root / "项目资料" / "汇报-李四.xlsx").read_bytes() == b"fake-xlsx"
 
 
 # ===========================================================================

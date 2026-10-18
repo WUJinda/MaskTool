@@ -75,7 +75,13 @@ def get_llm_settings() -> Dict[str, object]:
     default.yaml.llm > 代码默认。
     """
     data = load_settings().get("llm")
-    return dict(data) if isinstance(data, dict) else {}
+    d = dict(data) if isinstance(data, dict) else {}
+    # 布尔字段归一化：手写引号布尔（如 "false"）经 bool() 会反向误判，
+    # 统一在读取时纠正（与 config_loader._merge_app_llm / LLMConfig 对齐）。
+    for _bf in ("enabled", "trusted_endpoint"):
+        if _bf in d and not isinstance(d[_bf], bool):
+            d[_bf] = str(d[_bf]).strip().lower() in ("1", "true", "yes", "on")
+    return d
 
 
 def set_llm_settings(updates: Dict[str, object]) -> bool:

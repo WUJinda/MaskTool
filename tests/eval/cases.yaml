@@ -1,0 +1,54 @@
+# 评测语料（合成、非真实数据）。expected = 人工标注的“真实敏感实体”全集；
+# 未标注者即使被检出也算误报（FP）。行业通用词（甲方/乙方/监理…）非敏感，
+# 不入 expected。文本值统一加引号，避免 YAML 把纯数字解析为 int。
+cases:
+  - id: lexicon-regex-clean
+    notes: 词库命中 + 手机号正则，期望规则即可全中
+    text: >-
+      云岭智造科技（云岭市）与华东勘测设计研究院签订合同，联系人为周明远，电话13912345678。
+    expected:
+      - {text: "云岭智造科技", type: company}
+      - {text: "云岭市", type: location}
+      - {text: "华东勘测设计研究院", type: company}
+      - {text: "周明远", type: person}
+      - {text: "13912345678", type: custom}
+
+  - id: generic-words-only
+    notes: 仅行业通用词，期望零检出（白名单前置过滤）
+    text: >-
+      甲方与乙方按标段提交图纸与附件，监理会同总包完成竣工验收，相关文件编入合同附件。
+    expected: []
+
+  - id: informal-references
+    notes: 姓氏+职务的非正式指代；词库不可穷举、jieba 亦难识别 → 规则应漏检（AI 价值区）
+    text: >-
+      王总在评审会上拍板了方案，会后再跟张工、刘处确认验收标准。
+    expected:
+      - {text: "王总", type: person}
+      - {text: "张工", type: person}
+      - {text: "刘处", type: person}
+
+  - id: amount-regex
+    notes: 金额正则
+    text: >-
+      本次交易金额1234.56万元，履约保证金500万元，均已到账。
+    expected:
+      - {text: "1234.56万元", type: amount}
+      - {text: "500万元", type: amount}
+
+  - id: id-and-card
+    notes: 身份证 + 分隔形态银行卡号（19 位，4-4-4-4-3）
+    text: >-
+      身份证号110101199001011234，银行卡6222 0202 0000 1234 567。
+    expected:
+      - {text: "110101199001011234", type: custom}
+      - {text: "6222 0202 0000 1234 567", type: custom}
+
+  - id: project-and-date
+    notes: 项目专名 + 地名 + 日期
+    text: >-
+      云岭智能制造产业园二期位于云岭市，计划2026年3月1日开工。
+    expected:
+      - {text: "云岭智能制造产业园二期", type: project}
+      - {text: "云岭市", type: location}
+      - {text: "2026年3月1日", type: custom}

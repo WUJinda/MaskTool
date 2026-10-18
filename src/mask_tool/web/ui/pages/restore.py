@@ -74,6 +74,15 @@ def _render_restore_tab():
             unsafe_allow_html=True,
         )
 
+        # 还原后对账结果：残留即还原缺陷，分发前务必核查
+        residuals = restore_result.get("residuals") or []
+        if residuals:
+            st.error(
+                "⚠️ 还原后仍检测到映射表内替换串残留（还原缺陷），"
+                "请勿直接分发，建议核查映射表与本批文件的对应关系：\n"
+                + "\n".join(f"- {r}" for r in residuals)
+            )
+
         # 保存到目标文件夹（桌面交付方式；浏览器下载入口已随桌面化移除）
         st.markdown("#### 💾 保存还原文件")
         _render_save_to_dir_panel(
@@ -327,6 +336,31 @@ def _render_manual_upload() -> Optional[dict]:
         return None
 
 
+def _audit_restore_residuals(files: List[Path], token_map: dict) -> List[str]:
+    """还原后对账（与 CLI unmask 防线二同口径，审查 m-3 补线）。
+
+    扫描产物中残留的映射表内替换串：token 样式走正则，伪装词键
+    （不含 '['）逐键精确查；返回发现列表（"文件: 替换串"）。
+    扫描失败的文件跳过（尽力而为，不阻断交付）。"""
+    from mask_tool.adapters.extract import extract_texts
+    from mask_tool.core.engine import ReplacementEngine
+
+    alias_keys = [k for k in token_map if k and "[" not in k]
+    found: List[str] = []
+    for f in files:
+        if f.suffix.lower() not in {".docx", ".xlsx", ".xlsm", ".pdf"}:
+            continue  # txt/pptx 无统一提取器，尽力而为跳过
+        try:
+            text = extract_texts(f)
+        except Exception:
+            continue
+        residuals = ReplacementEngine.scan_tokens(text) & set(token_map)
+        residuals |= ReplacementEngine.scan_alias_residuals(text, alias_keys)
+        for r in sorted(residuals):
+            found.append(f"{f.name}: {r}")
+    return found
+
+
 def _run_restore(masked_files, mapping: dict):
     """执行恢复流程。
 
@@ -402,6 +436,10 @@ def _run_restore(masked_files, mapping: dict):
             st.error("❌ 未能恢复任何文件")
             return
 
+        # 还原后对账：残留（还原缺陷）记入结果页红字提示（不阻断交付，
+        # 用户可自行核查后再分发）
+        residuals = _audit_restore_residuals(output_files, raw_tokens)
+
         # 打包为 ZIP
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -412,6 +450,7 @@ def _run_restore(masked_files, mapping: dict):
         st.session_state["restore_result"] = {
             "zip_buffer": zip_buffer.getvalue(),
             "file_count": len(output_files),
+            "residuals": residuals,
         }
 
         st.rerun()
@@ -480,7 +519,15 @@ def _run_restore_zip(zip_file, mapping: dict):
             for w in res.warnings:
                 st.warning(w)
 
-        # 3) 重新打包 zip
+        # 3) 还原后对账（同 _run_restore，残留记入结果页红字提示）
+        _doc_exts = {".docx", ".xlsx", ".xlsm", ".pdf"}
+        residuals = _audit_restore_residuals(
+            [p for p in restored_root.rglob("*")
+             if p.is_file() and p.suffix.lower() in _doc_exts],
+            token_map,
+        )
+
+        # 4) 重新打包 zip
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for fp in sorted(p for p in restored_root.rglob("*") if p.is_file()):
@@ -489,6 +536,7 @@ def _run_restore_zip(zip_file, mapping: dict):
         st.session_state["restore_result"] = {
             "zip_buffer": zip_buffer.getvalue(),
             "file_count": restored_files,
+            "residuals": residuals,
         }
         st.rerun()
     finally:
