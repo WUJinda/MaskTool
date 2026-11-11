@@ -12,7 +12,7 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.64-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![pywebview](https://img.shields.io/badge/pywebview-桌面窗口-5B6EE8?style=flat-square)](https://pywebview.flowrl.com/)
-[![tests](https://img.shields.io/badge/tests-530%20passed-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](https://github.com/WUJinda/MaskTool/tree/main/tests)
+[![tests](https://img.shields.io/badge/tests-582%20passed-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](https://github.com/WUJinda/MaskTool/tree/main/tests)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 ![桌面应用界面](docs/screenshot-app.png)
@@ -26,7 +26,7 @@
 - **🔁 完全可逆** —— 敏感信息替换为唯一 Token（`[COMPANY_001]`），凭 `mapping.json` 无损还原；还原后自动对账扫描，残留 Token 即报错
 - **🎭 伪装词风格（alias）** —— 可选把实体类替换为自然伪装词：人名→汤姆/张三、地名→A市/B省、公司→A集团/B单位、项目→A项目；文档观感像普通文件，还原逻辑不变；自动避开原文已有词防还原撞词，词池可自定义（`config/alias_lexicon.yaml`）；词池耗尽自动回退占位符并警告，不会中断流程
 - **🧠 智能识别** —— 词库精确匹配 + 正则（手机号 / 身份证 / 银行卡 / 邮箱 / 日期）+ jieba NER，按置信度分级处置
-- **📄 深度格式覆盖** —— docx 正文 / 表格 / 嵌套表格 / 页眉页脚 / 脚注尾注 / 批注 / 文本框；xlsx 单元格 / 富文本 / 公式字面量 / 批注 / 数据验证列表；文本型 PDF 原位擦除替换
+- **📄 深度格式覆盖** —— docx 正文 / 表格 / 嵌套表格 / 页眉页脚 / 脚注尾注 / 批注 / 文本框；xlsx 单元格 / 富文本 / 公式字面量 / 批注 / 数据验证列表；文本型 PDF 原位擦除替换；旧版 .doc / .xls 经本机 MS Office 或 LibreOffice 转换后复用同一套能力
 - **🗂 文件名也脱敏** —— 目录模式下输出镜像树的文件名 / 目录名同步脱敏，映射表 `paths` 段记录，可一并还原
 - **🖥️ 桌面应用** —— 原生窗口（pywebview + WebView2），双击即用、关窗即退；UI 由内置 Streamlit 内核驱动，仅本机回环通信，无需浏览器与命令行
 - **🔒 本地优先** —— 仅监听 `127.0.0.1`，关闭遥测，全程无外部 API 调用，数据不出本机
@@ -70,7 +70,7 @@ mask-tool config
 
 - **临时自定义敏感词**：检测页文本框手动指定本次关注的词（每行一个或逗号分隔），按词库语义精确匹配、置信度 0.95 自动脱敏，生成 `[CUSTOM_xxx]` Token 并标「✍️ 手动」来源；仅本次任务生效，不写入词库文件
 - **仅脱敏我指定的词**：开关开启后完全跳过自动检测（NER / 正则 / 词库均不运行），只处理手动指定的词
-- **目录批量脱敏**：整个目录压成 zip 上传，递归处理其中 docx / xlsx，产物为同结构 zip；屏蔽类型（pptx / pdf）警告列出不进产物；还原页对称支持 zip 还原
+- **目录批量脱敏**：整个目录压成 zip 上传，递归处理其中 docx / doc / xlsx / xls / pdf，产物为同结构 zip；屏蔽类型（pptx）警告列出不进产物；还原页对称支持 zip 还原
 - **误报排除**：自动检测误报的词可加入 `config/whitelist.yaml` 永久排除
 - **下载规则**：单文件直接下载同名产物；多文件 / zip 下载压缩包。⚠️ `mapping.json` 是还原钥匙（含原文对照），请与脱敏文件分开保管，勿一起外发
 
@@ -156,6 +156,8 @@ mask-tool unmask "<批次目录>/<脱敏后目录>" --mapping "<批次目录>/ma
 | --- | --- | --- |
 | Word (.docx) | ✅ 支持 | 全部件覆盖（见特性）；文档属性（作者等元数据）自动清空 |
 | Excel (.xlsx) | ✅ 支持 | 单元格 / 富文本 / 数字（货币格式、Luhn 卡号）/ 公式字面量 / 批注 / 页眉脚 / 数据验证列表 / 定义名称 |
+| Word 97-2003 (.doc) | ✅ 支持（转换式） | 经本机 MS Office（Windows）或 LibreOffice 转 docx 处理后转回；需安装其一；内嵌宏被移除；复杂排版经重渲染可能与原件有差异 |
+| Excel 97-2003 (.xls) | ✅ 支持（转换式） | 经本机 MS Office（Windows）或 LibreOffice 转 xlsx 处理后转回；同上 |
 | 文件名 / 目录名 | ✅ 支持 | 目录模式镜像树自底向上改名，可还原 |
 | PowerPoint (.pptx) | ⛔ 屏蔽 | 跨 run 替换可靠性未达标准（代码保留，命中即警告跳过） |
 | PDF (.pdf) | ✅ 文本型支持 | PyMuPDF 原位擦除+插入占位符；扫描件/加密件明确报错；还原排版为近似恢复（字号自适应），重要文档请人工校对；图片内文字/批注/表单域不在脱敏范围；还原产物会去除原 PDF 的加密/权限标志 |
@@ -169,6 +171,7 @@ mask-tool unmask "<批次目录>/<脱敏后目录>" --mapping "<批次目录>/ma
 - **跨 tab/换行实体**：跨制表符 / 软换行的实体可被检测替换与还原，但重建后 tab / 换行可能位置漂移（偏离原位置），重要文档请人工复核
 - **roundtrip 前提**：unmask 仅保证对未再编辑的脱敏文档完整还原；xlsx 批注作者单向清除，不在还原范围
 - **xlsx 大整数精度**：≥16 位的整值数字在未脱敏保留时统一预转为文本存储（逐位保真）；16–19 位 Luhn 校验通过的卡号还原为数值，超过 19 位还原为文本
+- **doc / xls 转换式适配**：依赖本机已安装 Microsoft Office（Windows）或 LibreOffice（跨平台），两者皆无时明确报错并给安装指引；加密文档传哑密码毫秒级报错（不弹密码框），COM 转换全程 watchdog 超时保护（180s 强杀本工具创建的 Office 进程，不波及用户已开窗口）；文件经 Office/LibreOffice 重渲染，图表 / 艺术字 / OLE 对象等复杂排版可能与原件有差异，还原为内容级还原（重要文档请人工校对）；.doc/.xls 内嵌宏在转换中被移除（脱敏产物与还原产物均不含宏，宏内敏感信息请自行评估）；转换的中间 OOXML 件残留在系统 temp 目录（进程退出时清理，异常退出后下次启动清理超过 7 天的旧目录）
 - **检测临时副本**：检测后直接关闭窗口时，上传副本可能残留在系统 temp 目录；建议完成脱敏流程或再次点击「重新检测」触发清理
 - **xlsx 线程批注**：openpyxl 不支持 threadedComments，保存时该部件会被丢弃，运行时有告警
 - **路径超长**：改名后绝对路径超过 Windows MAX_PATH 限制时保留原名（不截断 Token）并警告
@@ -185,7 +188,7 @@ mask-tool unmask "<批次目录>/<脱敏后目录>" --mapping "<批次目录>/ma
 ├── src/mask_tool/
 │   ├── cli/          # CLI 入口（app 启动桌面窗口 / mask / unmask / inspect / config）
 │   ├── core/         # 核心业务（替换引擎 / 检测 / 策略 / 流水线 / 路径脱敏）
-│   ├── adapters/     # 格式适配器（docx / xlsx；pptx / pdf 已屏蔽）
+│   ├── adapters/     # 格式适配器（docx/xlsx 原生；doc/xls 转换式 office_convert；pdf；pptx 已屏蔽）
 │   ├── web/          # Streamlit UI 内核（app.py 薄入口 + ui/ 模块包 + static/ 样式；仅供桌面窗口渲染）
 │   ├── desktop.py    # pywebview 桌面窗口主入口
 │   ├── store/        # 持久化（映射表 / 词库）
@@ -203,7 +206,11 @@ mask-tool unmask "<批次目录>/<脱敏后目录>" --mapping "<批次目录>/ma
 pip install -e ".[dev]"
 
 # 运行测试（Windows 建议 PYTHONIOENCODING=utf-8）
+# 默认排除 real_engine（需本机 MS Office/LibreOffice，慢且对环境敏感）
 pytest
+
+# 显式跑真实转换引擎 round-trip（.doc/.xls 真机验证）
+pytest tests/test_legacy_office.py -m real_engine
 ```
 
 ## 📄 License
