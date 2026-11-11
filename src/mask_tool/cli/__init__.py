@@ -271,8 +271,9 @@ def mask(
 
     单文件：产物写入批次目录，默认主名同步脱敏并追加 _masked 后缀
     （--no-mask-names 关闭，关闭后为 {stem}_masked.ext）。
-    目录：递归处理 docx/xlsx/xlsm/pdf 到批次目录下的镜像树（保持原文件名），
-    非文档文件原样拷贝，pptx 跳过并警告（pdf 仅支持文本型，扫描/加密件报错）；--confirm 下未勾选
+    目录：递归处理 docx/doc/xlsx/xls/xlsm/pdf 到批次目录下的镜像树（保持原文件名），
+    非文档文件原样拷贝，pptx 跳过并警告（pdf 仅支持文本型，扫描/加密件报错；
+    doc/xls 为转换式处理，需本机 Office 或 LibreOffice，内嵌宏被移除）；--confirm 下未勾选
     （内容未脱敏）的文件拷入镜像树内 skipped_unmasked/ 隔离子目录；
     默认对镜像树做文件名/目录名脱敏（--no-mask-names 关闭）。
     """
@@ -484,7 +485,12 @@ def _mask_single_file(
         file_statuses = statuses
         if confirm_engine is not None:
             allowed = _confirm_file_detections(f, pipeline, confirm_engine)
-            if allowed is None or not allowed:
+            if allowed is None:
+                # 检测失败（提取/转换出错，上方已打印红字原因），与
+                # "无确认项"区分开，避免误导（审查 i-5）
+                console.print("[dim]跳过（检测失败，见上方错误）[/dim]")
+                return []
+            if not allowed:
                 console.print("[dim]跳过（无确认项）[/dim]")
                 return []
             file_statuses = frozenset(
@@ -816,9 +822,11 @@ def unmask(
         try:
             out_name = _restored_file_name(f, paths)
             out_path = _unique_path(output / out_name)
-            _restore_file_content(f, out_path, token_map)
+            warns = _restore_file_content(f, out_path, token_map)
             restored_docs.append(out_path)
-            console.print("[green]✓[/green]")
+            console.print("[yellow]⚠[/yellow]" if warns else "[green]✓[/green]")
+            for w in warns:
+                console.print(f"    [yellow]{f.name}: {w}[/yellow]")
         except Exception as e:
             console.print(f"[red]✗ {e}[/red]")
 
@@ -831,9 +839,11 @@ def unmask(
             if f.suffix.lower() in SUPPORTED_MASK_EXTS:
                 console.print(f"  还原: {rel.as_posix()} ...", end=" ")
                 try:
-                    _restore_file_content(f, f, token_map)  # 原地还原
+                    warns = _restore_file_content(f, f, token_map)  # 原地还原
                     restored_docs.append(f)
-                    console.print("[green]✓[/green]")
+                    console.print("[yellow]⚠[/yellow]" if warns else "[green]✓[/green]")
+                    for w in warns:
+                        console.print(f"    [yellow]{rel.as_posix()}: {w}[/yellow]")
                 except Exception as e:
                     console.print(f"[red]✗ {e}[/red]")
         # 文件名/目录名还原：先子后父
@@ -983,15 +993,19 @@ def _unique_path(path: Path) -> Path:
     return path.parent / f"{stem}_{n}{suffix}"
 
 
-def _restore_file_content(f: Path, output_path: Path, token_map: Dict[str, dict]) -> None:
+def _restore_file_content(f: Path, output_path: Path, token_map: Dict[str, dict]) -> List[str]:
     """单文件内容还原（R1-A2：委托公共实现 adapters/restore.py，CLI/Web 共用）。
 
     docx 走 walker（页眉/脚注/批注等全覆盖）；xlsx 走 restore_value
     （kind=number 的整值 token 还原为数值；rich_text=True 保内联格式）。
+
+    Returns:
+        警告文案列表（空 = 正常；PDF 零命中时会返回"产物与输入相同"
+        警告，调用方必须透出）。
     """
     from mask_tool.adapters.restore import restore_file_content
 
-    restore_file_content(f, output_path, token_map)
+    return restore_file_content(f, output_path, token_map)
 
 
 # ---------------------------------------------------------------------------

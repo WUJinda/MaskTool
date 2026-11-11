@@ -169,11 +169,18 @@ def _do_mask_file(
 # ──────────────────────────────────────────────
 
 def _unmask_pptx(input_path: Path, output_path: Path, tokens: dict) -> None:
-    """反脱敏 pptx 文件。tokens 格式: {token_str: original_str}
+    """反脱敏 pptx 文件。tokens 格式: {token_str: original_str 或 {original,...}}
 
     pptx 已无 mask 来源（BLOCKED_EXTS），仅服务旧版产物，保留旧实现。
+    条目兼容两种形态（与 _unmask_file 一致）：字符串旧版或新版 dict
+    （取 original 字段——旧实现直接把 dict 传给 str.replace 会抛
+    TypeError，静默走不到还原）。
     """
     from pptx import Presentation
+
+    def _original(entry) -> str:
+        return entry.get("original", "") if isinstance(entry, dict) else str(entry)
+
     shutil.copy2(input_path, output_path)
     prs = Presentation(str(output_path))
     for slide in prs.slides:
@@ -181,18 +188,18 @@ def _unmask_pptx(input_path: Path, output_path: Path, tokens: dict) -> None:
             if shape.has_text_frame:
                 for para in shape.text_frame.paragraphs:
                     for run in para.runs:
-                        for token, original in tokens.items():
+                        for token, entry in tokens.items():
                             if token in run.text:
-                                run.text = run.text.replace(token, original)
+                                run.text = run.text.replace(token, _original(entry))
             if shape.has_table:
                 for row in shape.table.rows:
                     for cell in row.cells:
                         if cell.text_frame:
                             for para in cell.text_frame.paragraphs:
                                 for run in para.runs:
-                                    for token, original in tokens.items():
+                                    for token, entry in tokens.items():
                                         if token in run.text:
-                                            run.text = run.text.replace(token, original)
+                                            run.text = run.text.replace(token, _original(entry))
     prs.save(str(output_path))
 
 
@@ -207,14 +214,17 @@ def _unmask_file(input_path: Path, output_path: Path, tokens: dict) -> Optional[
     """
     suffix = input_path.suffix.lower()
     try:
-        if suffix in (".docx", ".xlsx", ".xlsm", ".pdf"):
+        if suffix in (".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pdf"):
             from mask_tool.adapters.restore import restore_file_content
 
             token_map = {
                 t: (v if isinstance(v, dict) else {"original": v})
                 for t, v in tokens.items()
             }
-            restore_file_content(input_path, output_path, token_map)
+            for w in restore_file_content(input_path, output_path, token_map):
+                # PDF 零命中等警告必须透出：产物与输入相同时不能让用户
+                # 误以为已还原（损坏件对账查残留也查不出）
+                st.warning(f"{input_path.name}: {w}")
         elif suffix == ".pptx":
             _unmask_pptx(input_path, output_path, tokens)
         else:
@@ -315,7 +325,7 @@ def _run_detection(uploaded_files, mode: str, ner_enabled: bool,
         saved_paths = classified["docs"]
         zip_tree_root = str(tree_root)
         if not saved_paths:
-            st.warning("压缩包内没有可处理的 docx/xlsx/xlsm/pdf 文件")
+            st.warning("压缩包内没有可处理的 docx/doc/xlsx/xls/xlsm/pdf 文件")
     else:
         for f in uploaded_files:
             save_path = tmp_dir / f.name

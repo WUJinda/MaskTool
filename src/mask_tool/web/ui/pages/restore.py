@@ -83,6 +83,16 @@ def _render_restore_tab():
                 + "\n".join(f"- {r}" for r in residuals)
             )
 
+        # 零命中警告（PDF 路径返回）：替换串在输入中一次都没出现，
+        # 产物等于输入照抄——多见于映射表与文件不匹配或产物已损坏
+        zero_hits = restore_result.get("zero_hits") or []
+        if zero_hits:
+            st.warning(
+                "⚠️ 以下文件未发生任何还原（0 命中），产物与输入相同，"
+                "可能是映射表与文件不匹配、或脱敏产物已损坏（文本层不含"
+                "替换串）：\n" + "\n".join(f"- {z}" for z in zero_hits)
+            )
+
         # 保存到目标文件夹（桌面交付方式；浏览器下载入口已随桌面化移除）
         st.markdown("#### 💾 保存还原文件")
         _render_save_to_dir_panel(
@@ -152,12 +162,12 @@ def _render_restore_tab():
     with up_cols[0]:
         st.markdown(
             '<div class="up-title">📄 <b>单文件上传</b>'
-            '<span>支持多选 .docx / .xlsx / .pptx / .txt</span></div>',
+            '<span>支持多选 .docx / .doc / .xlsx / .xls / .xlsm / .pdf / .pptx / .txt</span></div>',
             unsafe_allow_html=True,
         )
         masked_files = st.file_uploader(
             "上传需要恢复的脱敏文件",
-            type=["docx", "xlsx", "pptx", "txt"],
+            type=["docx", "doc", "xlsx", "xls", "xlsm", "pdf", "pptx", "txt"],
             accept_multiple_files=True,
             label_visibility="collapsed",
             key="restore_masked_files",
@@ -183,7 +193,7 @@ def _render_restore_tab():
         st.markdown(
             '<div class="notice"><span class="ic">📤</span>'
             '<div class="tx">请上传需要还原的脱敏文件'
-            '<small>单文件可选 .docx / .xlsx / .pptx / .txt；目录脱敏 zip 可整批还原</small>'
+            '<small>单文件可选 .docx / .doc / .xlsx / .xls / .xlsm / .pdf / .pptx / .txt；目录脱敏 zip 可整批还原</small>'
             '</div></div>',
             unsafe_allow_html=True,
         )
@@ -348,7 +358,8 @@ def _audit_restore_residuals(files: List[Path], token_map: dict) -> List[str]:
     alias_keys = [k for k in token_map if k and "[" not in k]
     found: List[str] = []
     for f in files:
-        if f.suffix.lower() not in {".docx", ".xlsx", ".xlsm", ".pdf"}:
+        if f.suffix.lower() not in {".docx", ".xlsx", ".xlsm", ".pdf",
+                                    ".doc", ".xls"}:
             continue  # txt/pptx 无统一提取器，尽力而为跳过
         try:
             text = extract_texts(f)
@@ -359,6 +370,26 @@ def _audit_restore_residuals(files: List[Path], token_map: dict) -> List[str]:
         for r in sorted(residuals):
             found.append(f"{f.name}: {r}")
     return found
+
+
+def _restored_output_name(original_name: str, paths) -> Optional[str]:
+    """单文件还原名（对齐 CLI _restored_file_name 的唯一性语义）。
+
+    精确 rel_new 匹配优先，退而 basename 匹配；两者都要求唯一且
+    status 为真实改名记录（renamed / conflict_suffixed）。歧义时
+    返回 None（保持 _restored 后缀命名，不猜测——目录任务里不同
+    路径的同名文件互为歧义，取第一条会张冠李戴）。
+    """
+    _RENAMED = ("renamed", "conflict_suffixed")
+    exact = [m for m in paths
+             if m.rel_new == original_name and m.status in _RENAMED]
+    if len(exact) == 1:
+        return exact[0].old_name
+    base = [m for m in paths
+            if Path(m.rel_new).name == original_name and m.status in _RENAMED]
+    if len(base) == 1:
+        return base[0].old_name
+    return None
 
 
 def _run_restore(masked_files, mapping: dict):
@@ -407,22 +438,18 @@ def _run_restore(masked_files, mapping: dict):
         output_files: List[Path] = []
         for original_name, file_path in saved:
             suffix = file_path.suffix.lower()
-            # 还原分发底层 _unmask_file 已支持 docx/xlsx/xlsm/pdf
+            # 还原分发底层 _unmask_file 已支持 docx/doc/xlsx/xls/xlsm/pdf
             # （pptx 走 _unmask_pptx，txt 走纯文本替换）
-            if suffix not in {".docx", ".xlsx", ".xlsm", ".pdf",
+            if suffix not in {".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pdf",
                               ".pptx", ".txt"}:
                 st.warning(f"跳过不支持的文件类型: {original_name}")
                 continue
 
-            # 输出名：paths 段有匹配记录（rel_new 文件名）→ 还原原主名；否则 _restored 后缀
-            pm_record = next(
-                (m for m in paths
-                 if m.rel_new == original_name or Path(m.rel_new).name == original_name),
-                None,
-            )
+            # 输出名：paths 段唯一定位（精确 rel_new → basename，均须唯一）
+            # → 还原原主名；歧义/无记录 → _restored 后缀（不猜测）
             desired = (
-                pm_record.old_name if pm_record is not None
-                else f"{Path(original_name).stem}_restored{suffix}"
+                _restored_output_name(original_name, paths)
+                or f"{Path(original_name).stem}_restored{suffix}"
             )
             out_name = unique_name(output_dir, desired, taken_out)
             taken_out.add(out_name.casefold())
@@ -494,6 +521,7 @@ def _run_restore_zip(zip_file, mapping: dict):
             for t, v in raw_tokens.items()
         }
         restored_files = 0
+        zero_hits: List[str] = []
         for f in sorted(tree.rglob("*")):
             if not f.is_file():
                 continue
@@ -502,10 +530,11 @@ def _run_restore_zip(zip_file, mapping: dict):
                 continue  # 映射表不进还原产物
             dest = restored_root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if f.suffix.lower() in (".docx", ".xlsx", ".xlsm", ".pdf"):
+            if f.suffix.lower() in (".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pdf"):
                 try:
-                    restore_file_content(f, dest, token_map)
+                    warns = restore_file_content(f, dest, token_map)
                     restored_files += 1
+                    zero_hits.extend(f"{rel.as_posix()}: {w}" for w in warns)
                 except Exception as e:
                     st.warning(f"内容还原失败（原样拷入）: {rel.as_posix()} ({e})")
                     shutil.copy2(f, dest)
@@ -520,7 +549,7 @@ def _run_restore_zip(zip_file, mapping: dict):
                 st.warning(w)
 
         # 3) 还原后对账（同 _run_restore，残留记入结果页红字提示）
-        _doc_exts = {".docx", ".xlsx", ".xlsm", ".pdf"}
+        _doc_exts = {".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pdf"}
         residuals = _audit_restore_residuals(
             [p for p in restored_root.rglob("*")
              if p.is_file() and p.suffix.lower() in _doc_exts],
@@ -537,6 +566,7 @@ def _run_restore_zip(zip_file, mapping: dict):
             "zip_buffer": zip_buffer.getvalue(),
             "file_count": restored_files,
             "residuals": residuals,
+            "zero_hits": zero_hits,
         }
         st.rerun()
     finally:
