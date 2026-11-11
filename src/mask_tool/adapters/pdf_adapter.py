@@ -8,9 +8,12 @@
   字符区间 span.start/end），区间映射回**逐字符**矩形 → ``add_redact_annot``
   精确登记（同 span 部分命中不连带擦除前后文本——探针验证发现的缺陷）
 - 回写：``page.apply_redactions()`` 物理擦除（真删除内容，非遮挡；图片与
-  矢量线稿不动），在原字符基线点 ``insert_text`` 写回替换文本。token
-  仅含 ASCII 安全字符，内置 Helvetica（helv）即可，无中文字体嵌入问题；
-  字号自适应防溢出（``_insert_text``，脱敏与还原共用）
+  矢量线稿不动），在原字符基线点 ``insert_text`` 写回替换文本。字体按
+  替换串字符集自适应（``_font_for``）：ASCII token → 内置 Helvetica
+  （helv）；alias 中文伪装词 → 内置简体中文字体（china-s，与还原侧
+  同款），无中文字体嵌入问题；字号自适应防溢出（``_insert_text``，
+  脱敏与还原共用）。每页写入后回读校验（``_verify_inserted_texts``，
+  fail-closed：替换串未落入文本层即拖错，不产出不可还原的损坏件）
 - 边界（检测面=处理面，无静默盲区）：
   * 加密 PDF 拒绝处理（is_encrypted 守卫）
   * 无文本层（扫描件）全文档零命中 → 明确报错而非静默产出原件
@@ -92,6 +95,26 @@ def _collect_edit(chars, start: int, end: int, pad: float = _RECT_PAD) -> Option
     }
 
 
+def _font_for(text: str) -> str:
+    """按替换串字符集选插入字体（2026-10-28 PDF 还原失效根因修复）。
+
+    - Latin-1 可编码（token 样式 ``[COMPANY_001]`` 等 ASCII 串）→ ``helv``
+      （内置 Helvetica，历史行为不变）；
+    - 含 CJK 等非 Latin-1 字符（alias 伪装词"汤姆/A集团"）→ ``china-s``
+      （PyMuPDF 内置简体中文字体，还原侧 restore_pdf_file 同款）。
+
+    背景：``insert_text`` 用 helv 写中文**不抛异常**，但逐字退化为
+    ``·``（U+00B7），文本层不含伪装词 → unmask 零命中 → 还原静默
+    产出脱敏件。字体必须按内容自适应，且以回读校验兜底（见
+    ``_verify_inserted_texts``）。
+    """
+    try:
+        text.encode("latin-1")
+        return "helv"
+    except UnicodeEncodeError:
+        return "china-s"
+
+
 def _insert_text(page, origin, base_size: float, max_width: float,
                  text: str, fontname: str = "helv") -> None:
     """在原字符基线点插入文本，字号自适应：宽出则缩，下限 _MIN_FONT_SIZE
@@ -126,11 +149,14 @@ def _block_common_size(chars) -> float:
 
 
 def _apply_edits(page, edits: List[dict], texts: List[str],
-                 fontname: str = "helv") -> None:
+                 fontname: Optional[str] = None) -> None:
     """统一应用一批编辑：全部 redact → 一次性擦除 → 逐条插入。
 
     插入必须在 apply_redactions 之后（新插入文本不可被本轮擦除）。
-    edits[i] 与 texts[i] 一一对应。
+    edits[i] 与 texts[i] 一一对应。fontname=None 时逐条按替换串
+    字符集自适应（``_font_for``：ASCII → helv / CJK → china-s），
+    混合批次（alias 伪装词 + AMOUNT token）各自正确；显式传入时
+    整批使用指定字体（还原侧 china-s）。
     """
     import fitz
 
@@ -140,8 +166,29 @@ def _apply_edits(page, edits: List[dict], texts: List[str],
     # 图片/线稿保持不动：仅移除文本（图文重叠区的图片不受影响）
     page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
     for edit, text in zip(edits, texts):
+        fname = fontname or _font_for(text)
         _insert_text(page, edit["origin"], edit["size"], edit["width"],
-                     text, fontname=fontname)
+                     text, fontname=fname)
+
+
+def _verify_inserted_texts(page, page_no: int, inserted: List[str]) -> None:
+    """写入后回读校验（fail-closed 防线）：本页已插入的替换串必须能在
+    文本层逐串命中（提取口径与还原侧 ``iter_pdf_text_blocks`` 同源）。
+
+    任一串缺失即视为写入损坏（字体/编码回归），抛错中止——绝不允许
+    静默产出"看似脱敏、实不可还原"的损坏件（helv 写中文退化为 · 的
+    事故曾在 UI 显示"恢复完成"的情况下静默发生）。
+    """
+    if not inserted:
+        return
+    page_text = "".join(full for full, _chars in iter_pdf_text_blocks(page))
+    missing = [t for t in dict.fromkeys(inserted) if t not in page_text]
+    if missing:
+        sample = "、".join(repr(t[:20]) for t in missing[:3])
+        raise ValueError(
+            f"PDF 第 {page_no} 页替换串写入校验失败（{len(missing)} 串，"
+            f"如 {sample}）：文本层未检出已插入内容，产物将不可还原，已中止"
+        )
 
 
 def pdf_structure_warnings(path) -> list:
@@ -264,4 +311,7 @@ class PdfAdapter(FileAdapter):
                 texts.append(rep.new_text)
 
         if edits:
-            _apply_edits(page, edits, texts, fontname="helv")
+            # 字体自适应（_apply_edits 内逐条 _font_for）；插入后回读
+            # 校验 fail-closed，字体/编码回归当场暴露而非还原时才发现
+            _apply_edits(page, edits, texts)
+            _verify_inserted_texts(page, page_no, texts)
