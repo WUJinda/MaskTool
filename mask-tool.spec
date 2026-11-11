@@ -57,6 +57,9 @@ hiddenimports = [
     # typer/rich 动态导入面
     "typer",
     "rich.markdown",
+    # .doc/.xls 转换式适配（office_convert 函数内导入，显式声明防漏收）
+    "win32com.client",
+    "pythoncom",
 ]
 
 a = Analysis(

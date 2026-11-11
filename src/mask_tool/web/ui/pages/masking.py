@@ -343,7 +343,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     with up_cols[0]:
         st.markdown(
             '<div class="up-title">📄 <b>单文件上传</b>'
-            '<span>支持多选 .docx / .xlsx / .xlsm / .pdf</span></div>',
+            '<span>支持多选 .docx / .doc / .xlsx / .xls / .xlsm / .pdf</span></div>',
             unsafe_allow_html=True,
         )
         uploaded_files = st.file_uploader(
@@ -366,7 +366,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
             type=["zip"],
             key="dir_zip_upload",
             label_visibility="collapsed",
-            help=("把整个目录压缩成 zip 后上传：递归处理其中的 docx/xlsx/xlsm/pdf，"
+            help=("把整个目录压缩成 zip 后上传：递归处理其中的 docx/doc/xlsx/xls/xlsm/pdf，"
                   "pptx 等屏蔽类型会警告且不进产物；脱敏产物为同结构"
                   "目录的 zip 压缩包"),
         )
@@ -376,9 +376,9 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     if not uploaded_files and dir_zip is None:
         st.markdown(
             '<div class="notice"><span class="ic">📤</span>'
-            '<div class="tx">请上传需要脱敏的文件（支持 <b>.docx / .xlsx / .xlsm / .pdf</b>，'
+            '<div class="tx">请上传需要脱敏的文件（支持 <b>.docx / .doc / .xlsx / .xls / .xlsm / .pdf</b>，'
             '或上传整个目录的 <b>.zip</b> 压缩包）'
-            '<small>仅 PPT 已停用；PDF 需文本型（扫描件不支持）</small>'
+            '<small>仅 PPT 已停用；PDF 需文本型（扫描件不支持）；.doc/.xls 需本机装有 Office 或 LibreOffice</small>'
             '</div></div>',
             unsafe_allow_html=True,
         )
@@ -392,7 +392,7 @@ def _render_masking_tab(mode: str, ner_enabled: bool, irreversible: bool, learn_
     if blocked_msgs:
         st.error(
             "以下文件暂不支持脱敏，请移除后重试"
-            "（当前支持 Word .docx 与 Excel .xlsx / .xlsm 及文本型 PDF）：\n\n"
+            "（当前支持 Word .docx/.doc 与 Excel .xlsx/.xls/.xlsm 及文本型 PDF）：\n\n"
             + "\n\n".join(blocked_msgs)
         )
         return

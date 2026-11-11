@@ -634,8 +634,26 @@ def _lines_html_xlsx(rows: List[Dict], target_ri: int, hit_coord: str, word: str
     return "".join(out)
 
 
+def _legacy_locate_source(path: Path) -> Optional[Path]:
+    """旧版格式（.doc/.xls）的定位载体：转换缓存里的 OOXML 件。
+
+    检测阶段同一文件已经转过（同一 convert_cached 缓存，key 含
+    mtime/size），此处几乎必命中缓存、零转换开销；转换失败（理论
+    不可达：检测成功过）返回 None 走 miss 卡片。"""
+    from mask_tool.adapters.office_convert import convert_cached
+
+    target = ".docx" if path.suffix.lower() == ".doc" else ".xlsx"
+    try:
+        return convert_cached(path, target)
+    except Exception:
+        return None
+
+
 def _build_locate_view(r: DetectionResult) -> Dict:
-    """构建定位视图（docx/xlsx/path/miss 四型），供弹窗渲染。"""
+    """构建定位视图（docx/xlsx/path/miss 四型），供弹窗渲染。
+
+    .doc/.xls 检测项的 Location 指向原始文件，但其结构化定位复用转换
+    缓存里的 OOXML 件（与检测面同源，审查 m-4）。"""
     file_path = (r.location.file if r.location else None) or ""
 
     # 文件名来源：词不在文档正文中
@@ -647,6 +665,11 @@ def _build_locate_view(r: DetectionResult) -> Dict:
         return {"kind": "miss", "word": r.text, "file": file_path, "r": r}
 
     suffix = path.suffix.lower()
+    if suffix in (".doc", ".xls"):
+        converted = _legacy_locate_source(path)
+        if converted is not None:
+            path = converted           # 后续定位器同源复用
+            suffix = converted.suffix.lower()
     try:
         if suffix == ".docx":
             blocks = _extract_docx_blocks(path)

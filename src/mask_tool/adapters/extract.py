@@ -15,7 +15,7 @@ CLI ``--confirm`` / ``inspect`` 与 Web 检测流程共用的提取入口：
 """
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from mask_tool.models.detection import DetectionResult, Location
 
@@ -39,11 +39,31 @@ def extract_texts(file_path) -> str:
         return "\n".join(extract_xlsx_texts(file_path))
     if suffix == ".pdf":
         return "\n".join(extract_pdf_texts(file_path))
+    if suffix in (".doc", ".xls"):
+        return "\n".join(extract_legacy_texts(file_path))
     if suffix == ".pptx":
         raise ValueError(
             f"{suffix} 脱敏暂未开放，无法检测（见 core/formats.py BLOCKED_EXTS）"
         )
     return ""
+
+
+def extract_legacy_texts(file_path) -> List[str]:
+    """旧版 Office 二进制格式（.doc/.xls）提取：转换式委托 OOXML 提取。
+
+    经 office_convert 进程级缓存转换（与 mask 处理面共用同一临时件）；
+    转换失败（无引擎/加密/损坏）时原样抛出，由上层向用户展示。
+    """
+    from mask_tool.adapters.office_convert import convert_cached
+
+    file_path = Path(file_path)
+    suffix = file_path.suffix.lower()
+    if suffix == ".doc":
+        from mask_tool.adapters.docx_adapter import DocxAdapter
+        converted = convert_cached(file_path, ".docx")
+        return DocxAdapter.extract_paragraph_texts(converted)
+    converted = convert_cached(file_path, ".xlsx")
+    return extract_xlsx_texts(converted)
 
 
 def detect_file_results(file_path, detector, policy) -> List[DetectionResult]:
@@ -65,7 +85,28 @@ def detect_file_results(file_path, detector, policy) -> List[DetectionResult]:
         results.extend(_detect_xlsx_results(file_path, detector))
     elif suffix == ".pdf":
         results.extend(_detect_pdf_results(file_path, detector))
+    elif suffix in (".doc", ".xls"):
+        # 旧版二进制格式（L2）：转换后委托 OOXML 检测面，检测项 Location
+        # 与上下文均以原始 .doc/.xls 路径标识（与处理面同口径）
+        results.extend(_detect_legacy_results(file_path, detector))
     return policy.apply(results)
+
+
+def _detect_legacy_results(file_path: Path, detector) -> List[DetectionResult]:
+    """旧版 Office 检测面：转换缓存委托 docx/xlsx 检测，原始路径标识。"""
+    from mask_tool.adapters.office_convert import convert_cached
+
+    suffix = file_path.suffix.lower()
+    if suffix == ".doc":
+        from mask_tool.adapters.docx_adapter import DocxAdapter
+        converted = convert_cached(file_path, ".docx")
+        file_path_str = str(file_path)
+        results: List[DetectionResult] = []
+        for para in DocxAdapter.extract_paragraph_texts(converted):
+            results.extend(detector.detect(para, file_path_str))
+        return results
+    converted = convert_cached(file_path, ".xlsx")
+    return _detect_xlsx_results(converted, detector, display_path=str(file_path))
 
 
 def _detect_pdf_results(file_path: Path, detector) -> List[DetectionResult]:
@@ -183,15 +224,20 @@ def extract_xlsx_texts(file_path) -> List[str]:
     return texts
 
 
-def _detect_xlsx_results(file_path: Path, detector) -> List[DetectionResult]:
-    """xlsx 检测结果（数字单元格 synth 规则与 adapter 写路径共用同一实现）。"""
+def _detect_xlsx_results(
+    file_path: Path, detector, display_path: Optional[str] = None,
+) -> List[DetectionResult]:
+    """xlsx 检测结果（数字单元格 synth 规则与 adapter 写路径共用同一实现）。
+
+    display_path：Location 展示用路径（转换式适配传原始 .xls 路径）。
+    """
     from openpyxl import load_workbook
     from openpyxl.cell.cell import MergedCell
     from openpyxl.cell.rich_text import CellRichText
 
     from mask_tool.adapters.xlsx_adapter import XlsxAdapter
 
-    file_path_str = str(file_path)
+    file_path_str = str(display_path) if display_path else str(file_path)
     results: List[DetectionResult] = []
     wb = load_workbook(str(file_path), rich_text=True)
     try:

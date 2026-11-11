@@ -144,7 +144,7 @@ def _extract_text(file_path: Path) -> str:
     消除旧版 doc.paragraphs+tables / read_only str 单元格的检测盲区）。"""
     suffix = file_path.suffix.lower()
     try:
-        if suffix in (".docx", ".xlsx", ".xlsm"):
+        if suffix in (".docx", ".doc", ".xlsx", ".xls", ".xlsm"):
             from mask_tool.adapters.extract import extract_texts
             return extract_texts(file_path)
         if suffix == ".pptx":
@@ -172,7 +172,8 @@ def _extract_text(file_path: Path) -> str:
 def _file_icon(suffix: str) -> str:
     """返回文件类型图标"""
     icons = {
-        ".docx": "📄", ".xlsx": "📊", ".pptx": "📽️", ".pdf": "📕",
+        ".docx": "📄", ".doc": "📄", ".xlsx": "📊", ".xls": "📊",
+        ".pptx": "📽️", ".pdf": "📕",
     }
     return icons.get(suffix.lower(), "📁")
 

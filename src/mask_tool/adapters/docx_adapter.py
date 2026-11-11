@@ -95,6 +95,7 @@ class DocxAdapter(FileAdapter):
         input_path: Path,
         output_dir: Path,
         output_name: Optional[str] = None,
+        display_path: Optional[str] = None,
     ) -> Path:
         """处理 Word 文档：清空元数据 -> walker 逐段脱敏 -> 另存。
 
@@ -103,6 +104,9 @@ class DocxAdapter(FileAdapter):
             output_dir: 输出目录
             output_name: 输出文件名；None 时为 {stem}_masked.docx
                 （目录模式由 CLI 传原文件名以构建镜像树）
+            display_path: 检测项 Location 展示用文件路径；转换式适配
+                （LegacyOfficeAdapter）传原始 .doc 路径，避免临时 OOXML
+                路径外泄到检测结果；None 时用 input_path（行为不变）
         """
         input_path = Path(input_path)
         output_dir = Path(output_dir)
@@ -110,7 +114,7 @@ class DocxAdapter(FileAdapter):
         doc = Document(str(input_path))
         clear_core_properties(doc)
 
-        file_path = str(input_path)
+        file_path = str(display_path) if display_path else str(input_path)
         for label, root, flush in self._iter_xml_roots(doc):
             self._clear_comment_authors(root)
             for idx, p_elem in enumerate(root.iter(qn("w:p"))):

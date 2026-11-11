@@ -264,21 +264,45 @@ class Pipeline:
                     doc.close()
             except Exception:
                 return set()
+        if path.suffix.lower() in {".doc", ".xls"}:
+            # 旧版二进制格式（L2）：经转换缓存转 OOXML 后按 zip XML 扫描。
+            # 转换与适配器处理共用进程级缓存，单次 mask 只做一次正向转换；
+            # 无引擎/转换失败静默跳过——预扫描是尽力而为的防线
+            try:
+                converted = self._legacy_ooxml_for_scan(path)
+                return self._scan_ooxml_tokens(converted, scan)
+            except Exception:
+                return set()
         if path.suffix.lower() in {".docx", ".xlsx", ".xlsm", ".pptx"}:
             try:
-                with zipfile.ZipFile(path) as zf:
-                    found: Set[str] = set()
-                    for name in zf.namelist():
-                        if name.endswith((".xml", ".rels")):
-                            data = zf.read(name).decode("utf-8", errors="ignore")
-                            found |= scan(data)
-                    return found
+                return self._scan_ooxml_tokens(path, scan)
             except Exception:
                 pass  # 非 zip / 损坏：回退纯文本尝试
         try:
             return scan(path.read_text(encoding="utf-8", errors="ignore"))
         except Exception:
             return set()
+
+    @staticmethod
+    def _legacy_ooxml_for_scan(path: Path) -> Path:
+        """旧版 Office 文件的预扫描载体：转换缓存返回的只读 OOXML 件。"""
+        from mask_tool.adapters.office_convert import convert_cached
+
+        suffix = path.suffix.lower()
+        target = ".docx" if suffix == ".doc" else ".xlsx"
+        return convert_cached(path, target)
+
+    @staticmethod
+    def _scan_ooxml_tokens(zip_path: Path, scan) -> Set[str]:
+        """OOXML zip 内 XML 部件的 token 样式串扫描（token 仅含 ASCII 安全
+        字符，无 XML 转义问题，直接在原文上扫）。"""
+        found: Set[str] = set()
+        with zipfile.ZipFile(zip_path) as zf:
+            for name in zf.namelist():
+                if name.endswith((".xml", ".rels")):
+                    data = zf.read(name).decode("utf-8", errors="ignore")
+                    found |= scan(data)
+        return found
 
     def _scan_file_text(self, path: Path) -> str:
         """alias 模式撞词避让：提取文件全文明文（与 _scan_file_tokens 同
@@ -304,25 +328,35 @@ class Pipeline:
                     doc.close()
             except Exception:
                 return ""
+        if path.suffix.lower() in {".doc", ".xls"}:
+            # 旧版二进制格式：转 OOXML 后走同一 XML 剥标签口径（尽力而为）
+            try:
+                return self._ooxml_plaintext(self._legacy_ooxml_for_scan(path))
+            except Exception:
+                return ""
         if path.suffix.lower() in {".docx", ".xlsx", ".xlsm", ".pptx"}:
             try:
-                import html as _html
-
-                with zipfile.ZipFile(path) as zf:
-                    parts = []
-                    for name in zf.namelist():
-                        if name.endswith((".xml", ".rels")):
-                            data = zf.read(name).decode("utf-8", errors="ignore")
-                            # 剥标签 + 反转义：含 &amp; 等实体的自定义池词也能命中
-                            parts.append(
-                                _html.unescape(_XML_TAG_RE.sub("", data)))
-                    return "\n".join(parts)
+                return self._ooxml_plaintext(path)
             except Exception:
                 pass
         try:
             return path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             return ""
+
+    @staticmethod
+    def _ooxml_plaintext(zip_path: Path) -> str:
+        """OOXML zip 内 XML 部件剥标签拼接（alias 撞词避让扫描用）。"""
+        import html as _html
+
+        parts = []
+        with zipfile.ZipFile(zip_path) as zf:
+            for name in zf.namelist():
+                if name.endswith((".xml", ".rels")):
+                    data = zf.read(name).decode("utf-8", errors="ignore")
+                    # 剥标签 + 反转义：含 &amp; 等实体的自定义池词也能命中
+                    parts.append(_html.unescape(_XML_TAG_RE.sub("", data)))
+        return "\n".join(parts)
 
     def process_file(
         self,
@@ -384,6 +418,10 @@ class Pipeline:
                 result = self._process_xlsx(input_path, batch_dir, output_name)
             elif suffix == ".pdf":
                 result = self._process_pdf(input_path, batch_dir, output_name)
+            elif suffix == ".doc":
+                result = self._process_doc(input_path, batch_dir, output_name)
+            elif suffix == ".xls":
+                result = self._process_xls(input_path, batch_dir, output_name)
             else:
                 return None
         finally:
@@ -466,6 +504,22 @@ class Pipeline:
                 "PDF处理需要安装PyMuPDF: pip install pymupdf"
             )
         return self._run_adapter(PdfAdapter, input_path, batch_dir, output_name)
+
+    def _process_doc(self, input_path: Path, batch_dir: Path,
+                     output_name: Optional[str] = None) -> Path:
+        """处理 Word 97-2003（L2 转换式：doc→docx→DocxAdapter→doc）。
+
+        无可用转换引擎（Office/LibreOffice）时 DocAdapter 内部抛
+        EngineUnavailableError，由上层捕获向用户展示安装指引。
+        """
+        from mask_tool.adapters.legacy_adapter import DocAdapter
+        return self._run_adapter(DocAdapter, input_path, batch_dir, output_name)
+
+    def _process_xls(self, input_path: Path, batch_dir: Path,
+                     output_name: Optional[str] = None) -> Path:
+        """处理 Excel 97-2003（L2 转换式：xls→xlsx→XlsxAdapter→xls）"""
+        from mask_tool.adapters.legacy_adapter import XlsAdapter
+        return self._run_adapter(XlsAdapter, input_path, batch_dir, output_name)
 
     def save_mapping(self, output_path: Path) -> None:
         """保存映射表到JSON文件（metadata 含批次信息，M3/M4）"""

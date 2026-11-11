@@ -4,8 +4,12 @@ from .base import FileAdapter
 from .docx_adapter import DocxAdapter
 from .xlsx_adapter import XlsxAdapter
 from .pptx_adapter import PptxAdapter
+from .legacy_adapter import DocAdapter, XlsAdapter
 
-__all__ = ["FileAdapter", "DocxAdapter", "XlsxAdapter", "PptxAdapter"]
+__all__ = [
+    "FileAdapter", "DocxAdapter", "XlsxAdapter", "PptxAdapter",
+    "DocAdapter", "XlsAdapter",
+]
 
 
 def get_pdf_adapter():

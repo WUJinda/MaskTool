@@ -98,6 +98,7 @@ class XlsxAdapter(FileAdapter):
         input_path: Path,
         output_dir: Path,
         output_name: Optional[str] = None,
+        display_path: Optional[str] = None,
     ) -> Path:
         """处理 Excel 文档：逐工作表脱敏后另存。
 
@@ -106,6 +107,8 @@ class XlsxAdapter(FileAdapter):
             output_dir: 输出目录
             output_name: 输出文件名；None 时保持 {stem}_masked.xlsx，
                 供文件名脱敏流程协调原名输出
+            display_path: 检测项 Location 展示用文件路径（转换式适配
+                传原始 .xls 路径）；None 时用 input_path（行为不变）
         """
         input_path = Path(input_path)
         output_dir = Path(output_dir)
@@ -116,7 +119,7 @@ class XlsxAdapter(FileAdapter):
         wb = load_workbook(str(input_path), rich_text=True,
                            keep_vba=keep_vba)               # ② 富文本保格式
 
-        file_path = str(input_path)
+        file_path = str(display_path) if display_path else str(input_path)
         self._process_workbook(wb, file_path)              # ③ 逐部件脱敏
 
         output_dir.mkdir(parents=True, exist_ok=True)      # ④ 保存
@@ -147,7 +150,11 @@ class XlsxAdapter(FileAdapter):
         if not isinstance(token_text, str) or not token_map:
             return token_text, []
         restored, hits = token_text, []
-        for token, entry in token_map.items():
+        # 长键优先（与 ReplacementEngine.unmask_text 同语义）：防互为前缀的
+        # 键（跨批次混用/手工编辑的映射表，如"A市"与"A市场"）短键先替换
+        # 破坏长键——插入序替换会把"A市场"还原成"广州市场"式错文
+        for token in sorted(token_map, key=len, reverse=True):
+            entry = token_map[token]
             if token and token in restored:
                 original, _kind = XlsxAdapter._mapping_fields(entry)
                 restored = restored.replace(token, original)
